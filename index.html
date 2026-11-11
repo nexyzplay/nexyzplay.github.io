@@ -1,0 +1,118 @@
+// Proxy HLS lokal: menambahkan Referer, Origin, dan User-Agent di sisi server.
+// Jalankan: node server.js  (butuh Node 18+), lalu buka http://localhost:8787
+const http = require("http");
+const fs = require("fs");
+const path = require("path");
+
+const PORT = process.env.PORT || 8787;
+
+// Hanya domain ini yang boleh diproxy (mencegah proxy dipakai untuk situs lain).
+const ALLOWED = ["twitch.tv", "ttvnw.net", "twitchcdn.net", "jtvnw.net"];
+
+const DEFAULTS = {
+  referer: "https://www.twitch.tv/",
+  origin: "https://www.twitch.tv",
+  ua: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+};
+
+const isAllowed = (host) =>
+  ALLOWED.some((d) => host === d || host.endsWith("." + d));
+
+function proxify(target, opts) {
+  const p = new URLSearchParams({
+    url: target,
+    referer: opts.referer,
+    origin: opts.origin,
+    ua: opts.ua,
+  });
+  return "/proxy?" + p.toString();
+}
+
+function rewritePlaylist(text, baseUrl, opts) {
+  return text
+    .split(/\r?\n/)
+    .map((line) => {
+      if (!line.trim()) return line;
+      if (line.startsWith("#")) {
+        // Tag dengan URI="..." (EXT-X-MAP, EXT-X-KEY, EXT-X-MEDIA, dst.)
+        return line.replace(/URI="([^"]+)"/g, (_, u) => {
+          const abs = new URL(u, baseUrl).toString();
+          return `URI="${proxify(abs, opts)}"`;
+        });
+      }
+      return proxify(new URL(line.trim(), baseUrl).toString(), opts);
+    })
+    .join("\n");
+}
+
+async function handleProxy(req, res, params) {
+  const target = params.get("url");
+  const opts = {
+    referer: params.get("referer") || DEFAULTS.referer,
+    origin: params.get("origin") || DEFAULTS.origin,
+    ua: params.get("ua") || DEFAULTS.ua,
+  };
+
+  let u;
+  try {
+    u = new URL(target);
+  } catch {
+    res.writeHead(400);
+    return res.end("URL tidak valid");
+  }
+  if (!["http:", "https:"].includes(u.protocol) || !isAllowed(u.hostname)) {
+    res.writeHead(403);
+    return res.end("Domain tidak diizinkan: " + u.hostname);
+  }
+
+  try {
+    const headers = {
+      "User-Agent": opts.ua,
+      Referer: opts.referer,
+      Origin: opts.origin,
+      Accept: "*/*",
+    };
+    if (req.headers.range) headers.Range = req.headers.range;
+
+    const upstream = await fetch(u, { headers, redirect: "follow" });
+    const type = upstream.headers.get("content-type") || "";
+    const isPlaylist =
+      u.pathname.endsWith(".m3u8") || /mpegurl/i.test(type);
+
+    const out = { "Access-Control-Allow-Origin": "*" };
+
+    if (isPlaylist) {
+      const body = rewritePlaylist(await upstream.text(), upstream.url, opts);
+      res.writeHead(upstream.status, {
+        ...out,
+        "Content-Type": "application/vnd.apple.mpegurl",
+        "Cache-Control": "no-store",
+      });
+      return res.end(body);
+    }
+
+    const buf = Buffer.from(await upstream.arrayBuffer());
+    res.writeHead(upstream.status, {
+      ...out,
+      "Content-Type": type || "application/octet-stream",
+      "Content-Length": buf.length,
+    });
+    res.end(buf);
+  } catch (err) {
+    res.writeHead(502);
+    res.end("Gagal mengambil sumber: " + err.message);
+  }
+}
+
+http
+  .createServer((req, res) => {
+    const url = new URL(req.url, `http://${req.headers.host}`);
+    if (url.pathname === "/proxy") return handleProxy(req, res, url.searchParams);
+    if (url.pathname === "/" || url.pathname === "/index.html") {
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      return res.end(fs.readFileSync(path.join(__dirname, "index.html")));
+    }
+    res.writeHead(404);
+    res.end("Not found");
+  })
+  .listen(PORT, () => console.log(`Player siap di http://localhost:${PORT}`));
