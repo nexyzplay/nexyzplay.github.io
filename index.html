@@ -1,118 +1,122 @@
-// Proxy HLS lokal: menambahkan Referer, Origin, dan User-Agent di sisi server.
-// Jalankan: node server.js  (butuh Node 18+), lalu buka http://localhost:8787
-const http = require("http");
-const fs = require("fs");
-const path = require("path");
-
-const PORT = process.env.PORT || 8787;
-
-// Hanya domain ini yang boleh diproxy (mencegah proxy dipakai untuk situs lain).
-const ALLOWED = ["twitch.tv", "ttvnw.net", "twitchcdn.net", "jtvnw.net"];
-
-const DEFAULTS = {
-  referer: "https://www.twitch.tv/",
-  origin: "https://www.twitch.tv",
-  ua: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-};
-
-const isAllowed = (host) =>
-  ALLOWED.some((d) => host === d || host.endsWith("." + d));
-
-function proxify(target, opts) {
-  const p = new URLSearchParams({
-    url: target,
-    referer: opts.referer,
-    origin: opts.origin,
-    ua: opts.ua,
-  });
-  return "/proxy?" + p.toString();
-}
-
-function rewritePlaylist(text, baseUrl, opts) {
-  return text
-    .split(/\r?\n/)
-    .map((line) => {
-      if (!line.trim()) return line;
-      if (line.startsWith("#")) {
-        // Tag dengan URI="..." (EXT-X-MAP, EXT-X-KEY, EXT-X-MEDIA, dst.)
-        return line.replace(/URI="([^"]+)"/g, (_, u) => {
-          const abs = new URL(u, baseUrl).toString();
-          return `URI="${proxify(abs, opts)}"`;
-        });
-      }
-      return proxify(new URL(line.trim(), baseUrl).toString(), opts);
-    })
-    .join("\n");
-}
-
-async function handleProxy(req, res, params) {
-  const target = params.get("url");
-  const opts = {
-    referer: params.get("referer") || DEFAULTS.referer,
-    origin: params.get("origin") || DEFAULTS.origin,
-    ua: params.get("ua") || DEFAULTS.ua,
-  };
-
-  let u;
-  try {
-    u = new URL(target);
-  } catch {
-    res.writeHead(400);
-    return res.end("URL tidak valid");
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HLS Player</title>
+<style>
+  :root {
+    --bg: #17141f; --panel: #221e2e; --line: #3a3350; --text: #ece8f5;
+    --muted: #9d94b5; --accent: #9b6cff; --err: #ff7a7a;
   }
-  if (!["http:", "https:"].includes(u.protocol) || !isAllowed(u.hostname)) {
-    res.writeHead(403);
-    return res.end("Domain tidak diizinkan: " + u.hostname);
+  @media (prefers-color-scheme: light) {
+    :root { --bg: #f4f2f9; --panel: #fff; --line: #d8d3e6; --text: #211b33; --muted: #6b6384; --accent: #6a3ddb; --err: #c0392b; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, sans-serif; }
+  main { max-width: 960px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 1.25rem; margin: 0 0 16px; }
+  video { width: 100%; aspect-ratio: 16/9; background: #000; border-radius: 6px; display: block; }
+  form { margin-top: 16px; display: grid; gap: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 16px; }
+  label { display: grid; gap: 4px; color: var(--muted); font-size: .85rem; }
+  input { padding: 9px 10px; border-radius: 4px; border: 1px solid var(--line); background: var(--bg); color: var(--text); font: inherit; }
+  input:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button { padding: 10px 16px; border: 0; border-radius: 4px; background: var(--accent); color: #fff; font: inherit; font-weight: 600; cursor: pointer; justify-self: start; }
+  #status { min-height: 1.4em; margin-top: 10px; color: var(--muted); font-size: .9rem; }
+  #status.error { color: var(--err); }
+</style>
+</head>
+<body>
+<main>
+  <h1>HLS Player</h1>
+  <video id="video" controls playsinline></video>
+  <div id="status" role="status"></div>
+
+  <form id="form">
+    <label>URL playlist (.m3u8)
+      <input id="src" type="url" required placeholder="https://usher.ttvnw.net/api/channel/hls/….m3u8">
+    </label>
+    <label>Referer
+      <input id="referer" value="https://www.twitch.tv/">
+    </label>
+    <label>Origin
+      <input id="origin" value="https://www.twitch.tv">
+    </label>
+    <label>User-Agent
+      <input id="ua" value="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36">
+    </label>
+    <button type="submit">Putar</button>
+  </form>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.17/hls.min.js"></script>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const video = $("video"), statusEl = $("status");
+  let hls;
+
+  function setStatus(msg, isError) {
+    statusEl.textContent = msg;
+    statusEl.className = isError ? "error" : "";
   }
 
-  try {
-    const headers = {
-      "User-Agent": opts.ua,
-      Referer: opts.referer,
-      Origin: opts.origin,
-      Accept: "*/*",
-    };
-    if (req.headers.range) headers.Range = req.headers.range;
+  function play() {
+    if (hls) { hls.destroy(); hls = null; }
 
-    const upstream = await fetch(u, { headers, redirect: "follow" });
-    const type = upstream.headers.get("content-type") || "";
-    const isPlaylist =
-      u.pathname.endsWith(".m3u8") || /mpegurl/i.test(type);
-
-    const out = { "Access-Control-Allow-Origin": "*" };
-
-    if (isPlaylist) {
-      const body = rewritePlaylist(await upstream.text(), upstream.url, opts);
-      res.writeHead(upstream.status, {
-        ...out,
-        "Content-Type": "application/vnd.apple.mpegurl",
-        "Cache-Control": "no-store",
-      });
-      return res.end(body);
-    }
-
-    const buf = Buffer.from(await upstream.arrayBuffer());
-    res.writeHead(upstream.status, {
-      ...out,
-      "Content-Type": type || "application/octet-stream",
-      "Content-Length": buf.length,
+    // Browser tidak boleh mengubah Referer/Origin/User-Agent, jadi semuanya
+    // dikirim ke proxy lokal (server.js) yang menambahkannya saat request.
+    const proxied = "/proxy?" + new URLSearchParams({
+      url: $("src").value.trim(),
+      referer: $("referer").value.trim(),
+      origin: $("origin").value.trim(),
+      ua: $("ua").value.trim(),
     });
-    res.end(buf);
-  } catch (err) {
-    res.writeHead(502);
-    res.end("Gagal mengambil sumber: " + err.message);
-  }
-}
 
-http
-  .createServer((req, res) => {
-    const url = new URL(req.url, `http://${req.headers.host}`);
-    if (url.pathname === "/proxy") return handleProxy(req, res, url.searchParams);
-    if (url.pathname === "/" || url.pathname === "/index.html") {
-      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-      return res.end(fs.readFileSync(path.join(__dirname, "index.html")));
+    if (Hls.isSupported()) {
+      hls = new Hls({ lowLatencyMode: true });
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        setStatus("Playlist dimuat.");
+        video.play().catch(() => setStatus("Tekan play untuk memulai."));
+      });
+      hls.on(Hls.Events.ERROR, (_, d) => {
+        if (d.fatal) setStatus("Error: " + d.type + " / " + d.details, true);
+      });
+      hls.loadSource(proxied);
+      hls.attachMedia(video);
+      setStatus("Memuat…");
+    } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+      video.src = proxied;
+      video.play().catch(() => {});
+    } else {
+      setStatus("Browser ini tidak mendukung HLS.", true);
     }
-    res.writeHead(404);
-    res.end("Not found");
-  })
-  .listen(PORT, () => console.log(`Player siap di http://localhost:${PORT}`));
+  }
+
+  $("form").addEventListener("submit", (e) => { e.preventDefault(); play(); });
+
+  // Dukung: http://localhost:8787/?url=<m3u8>[&referer=..&origin=..&ua=..]
+  // URL m3u8 yang berisi "&" (token, sig, dll.) tetap terbaca utuh.
+  function readQuery() {
+    const out = {};
+    let q = location.search.slice(1);
+    q = q.replace(/(?:^|&)(referer|origin|ua)=([^&]*)/g, (m, k, v) => {
+      try { out[k] = decodeURIComponent(v); } catch { out[k] = v; }
+      return "";
+    });
+    const m = q.match(/^&?url=([\s\S]*)$/);
+    if (m) {
+      let u = m[1];
+      if (/^https?%3A/i.test(u)) { try { u = decodeURIComponent(u); } catch {} }
+      out.url = u;
+    }
+    return out;
+  }
+
+  const qs = readQuery();
+  if (qs.referer) $("referer").value = qs.referer;
+  if (qs.origin) $("origin").value = qs.origin;
+  if (qs.ua) $("ua").value = qs.ua;
+  if (qs.url) { $("src").value = qs.url; play(); }
+</script>
+</body>
+</html>
