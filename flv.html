@@ -28,10 +28,52 @@
       display: none; position: fixed; top: 8px; left: 8px; z-index: 10000;
       padding: 6px 10px; border: 0; border-radius: 6px; background: rgba(0,0,0,.6); color: #fff;
     }
+
+    /* ===== Panel kontrol tunggal (gabungan semua tombol) ===== */
+    #ctrlPanel {
+      position: absolute; right: 10px; bottom: 10px; z-index: 50;
+      display: flex; align-items: center; gap: 6px;
+      background: rgba(0,0,0,.55); border-radius: 10px;
+      padding: 6px 8px; backdrop-filter: blur(4px);
+      opacity: 0; transition: opacity .25s;
+    }
+    #wrap:hover #ctrlPanel,
+    #wrap.showCtrl #ctrlPanel { opacity: 1; }
+    #ctrlPanel button {
+      width: 34px; height: 34px; border: 0; border-radius: 8px;
+      background: rgba(255,255,255,.12); color: #fff; font-size: 15px;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      transition: background .15s;
+    }
+    #ctrlPanel button:hover { background: rgba(255,255,255,.25); }
+    #ctrlPanel button:active { background: rgba(255,255,255,.35); }
+    #ctrlPanel .volWrap { display: flex; align-items: center; gap: 4px; }
+    #ctrlPanel input[type=range] {
+      width: 0; opacity: 0; transition: width .2s, opacity .2s;
+      accent-color: #2a7fff;
+    }
+    #ctrlPanel .volWrap:hover input[type=range],
+    #ctrlPanel .volWrap:focus-within input[type=range] {
+      width: 80px; opacity: 1;
+    }
   </style>
 </head>
 <body>
-  <div id="wrap"><div id="container"></div></div>
+  <div id="wrap">
+    <div id="container"></div>
+
+    <!-- ===== Satu panel kontrol: play, volume, screenshot, fullscreen ===== -->
+    <div id="ctrlPanel">
+      <button id="cPlay" title="Putar / Jeda">▶</button>
+      <div class="volWrap">
+        <button id="cMute" title="Mute / Unmute">🔇</button>
+        <input id="cVol" type="range" min="0" max="100" value="80" title="Volume">
+      </div>
+      <button id="cShot" title="Screenshot">📷</button>
+      <button id="cFull" title="Fullscreen / Landscape">⛶</button>
+    </div>
+  </div>
+
   <button id="exit">✕ Keluar</button>
   <div id="bar">
     <button id="btnLand">Landscape</button>
@@ -71,7 +113,6 @@
       } catch (e) { /* butuh sentuhan pengguna dulu */ }
     }
 
-    // Wake lock otomatis lepas saat tab disembunyikan, minta lagi saat kembali
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') keepAwake();
     });
@@ -93,7 +134,7 @@
       refit();
     }
 
-    document.getElementById('btnLand').onclick = async () => {
+    async function goLandscape() {
       keepAwake();
       try { player && player.audioResume && player.audioResume(); } catch (e) {}
       try {
@@ -105,7 +146,9 @@
         return;
       } catch (e) { /* tidak didukung, pakai putar CSS */ }
       forceRotate(true);
-    };
+    }
+
+    document.getElementById('btnLand').onclick = goLandscape;
     btnExit.onclick = () => forceRotate(false);
 
     document.addEventListener('fullscreenchange', () => {
@@ -115,6 +158,68 @@
       refit();
     });
     window.addEventListener('resize', refit);
+
+    // ===== Tombol panel kontrol =====
+    const cPlay = document.getElementById('cPlay');
+    const cMute = document.getElementById('cMute');
+    const cVol  = document.getElementById('cVol');
+    const cShot = document.getElementById('cShot');
+    const cFull = document.getElementById('cFull');
+
+    let playing = true;
+    let muted = false;
+    let lastVol = 80;
+
+    // play / pause
+    cPlay.onclick = () => {
+      try {
+        if (playing) { player && player.pause && player.pause(); cPlay.textContent = '▶'; }
+        else { player && player.play && player.play(); cPlay.textContent = '⏸'; }
+        playing = !playing;
+      } catch (e) {}
+    };
+
+    // mute
+    cMute.onclick = () => {
+      try {
+        muted = !muted;
+        if (muted) {
+          lastVol = +cVol.value;
+          cVol.value = 0;
+          player && player.setVolume && player.setVolume(0);
+          cMute.textContent = '🔇';
+        } else {
+          cVol.value = lastVol;
+          player && player.setVolume && player.setVolume(lastVol / 100);
+          cMute.textContent = '🔊';
+        }
+      } catch (e) {}
+    };
+
+    // volume slider
+    cVol.oninput = () => {
+      try {
+        const v = +cVol.value;
+        player && player.setVolume && player.setVolume(v / 100);
+        if (v > 0) { muted = false; cMute.textContent = '🔊'; }
+        else { muted = true; cMute.textContent = '🔇'; }
+      } catch (e) {}
+    };
+
+    // screenshot
+    cShot.onclick = () => {
+      try { player && player.screenshot && player.screenshot(); } catch (e) {}
+    };
+
+    // fullscreen / landscape (sama seperti tombol Landscape)
+    cFull.onclick = goLandscape;
+
+    // tampilkan panel saat disentuh (untuk mobile)
+    wrap.addEventListener('touchstart', () => {
+      wrap.classList.add('showCtrl');
+      clearTimeout(wrap._ctrlTimer);
+      wrap._ctrlTimer = setTimeout(() => wrap.classList.remove('showCtrl'), 3000);
+    }, { passive: true });
 
     // ===== Player =====
     function pickUrl(j) {
@@ -129,17 +234,24 @@
         container: document.getElementById('container'),
         videoBuffer: 1,
         isResize: true,
-        isFullResize: false,     // crop dimatikan total
+        isFullResize: false,
         useMSE: false,
         text: '',
         loadingText: 'Memuat...',
-        showBandwidth: false,    // <-- stats kecepatan internet dimatikan
+        showBandwidth: false,    // stats kecepatan internet dimatikan
         forceNoOffscreen: true,
         isNotMute: false,
-        operateBtns: { fullscreen: false, screenshot: true, play: true, audio: true }
+        // Panel bawaan Jessibuca dimatikan semua — kita pakai panel sendiri
+        operateBtns: { fullscreen: false, screenshot: false, play: false, audio: false }
       });
       player.on('error', e => show('Stream error: ' + e));
-      player.on('start', () => { refit(); keepAwake(); });
+      player.on('start', () => {
+        refit();
+        keepAwake();
+        playing = true;
+        cPlay.textContent = '⏸';
+        try { player.setVolume && player.setVolume(cVol.value / 100); } catch (e) {}
+      });
       player.play(url);
     }
 
