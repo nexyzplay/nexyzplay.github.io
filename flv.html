@@ -22,7 +22,6 @@
     }
 
     #bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 12px; }
-    #bar button { padding: 6px 12px; border: 0; border-radius: 6px; background: #2a7fff; color: #fff; font-size: 14px; }
     #status { font-size: 13px; word-break: break-all; }
     #exit {
       display: none; position: fixed; top: 8px; left: 8px; z-index: 10000;
@@ -76,7 +75,6 @@
 
   <button id="exit">✕ Keluar</button>
   <div id="bar">
-    <button id="btnLand">Landscape</button>
     <span id="status"></span>
   </div>
 
@@ -148,7 +146,6 @@
       forceRotate(true);
     }
 
-    document.getElementById('btnLand').onclick = goLandscape;
     btnExit.onclick = () => forceRotate(false);
 
     document.addEventListener('fullscreenchange', () => {
@@ -211,7 +208,7 @@
       try { player && player.screenshot && player.screenshot(); } catch (e) {}
     };
 
-    // fullscreen / landscape (sama seperti tombol Landscape)
+    // fullscreen / landscape
     cFull.onclick = goLandscape;
 
     // tampilkan panel saat disentuh (untuk mobile)
@@ -238,10 +235,9 @@
         useMSE: false,
         text: '',
         loadingText: 'Memuat...',
-        showBandwidth: false,    // stats kecepatan internet dimatikan
+        showBandwidth: false,
         forceNoOffscreen: true,
         isNotMute: false,
-        // Panel bawaan Jessibuca dimatikan semua — kita pakai panel sendiri
         operateBtns: { fullscreen: false, screenshot: false, play: false, audio: false }
       });
       player.on('error', e => show('Stream error: ' + e));
