@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<title>FLV Player</title>
+<style>
+  html, body { margin: 0; width: 100%; height: 100%; background: #000; overflow: hidden; }
+  video { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
+  #msg {
+    position: fixed; left: 50%; bottom: 12%; transform: translateX(-50%);
+    max-width: 90%; padding: 8px 14px; border-radius: 6px;
+    background: rgba(0,0,0,.75); color: #fff; font: 14px system-ui, sans-serif;
+    text-align: center; display: none;
+  }
+</style>
+</head>
+<body>
+<video id="video" controls autoplay playsinline referrerpolicy="no-referrer"></video>
+<div id="msg" role="status"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/mpegts.js@1.7.3/dist/mpegts.js"></script>
+<script>
+  // Format: flv.html?url=LINK_FLV  (link tidak perlu berakhiran .flv)
+  const m = location.search.match(/[?&]url=(.*)$/);
+  let SRC = m ? m[1] : "";
+  if (/^https?%3A/i.test(SRC)) SRC = decodeURIComponent(SRC);
+
+  const video = document.getElementById("video");
+  const msg = document.getElementById("msg");
+  function show(t) { msg.textContent = t; msg.style.display = t ? "block" : "none"; }
+
+  let player = null;
+  let retries = 0;
+
+  function start() {
+    if (player) { player.destroy(); player = null; }
+    player = mpegts.createPlayer({
+      type: "flv",          // dipaksa FLV, jadi URL tanpa ekstensi tetap jalan
+      isLive: true,
+      url: SRC
+    }, {
+      referrerPolicy: "no-referrer",   // tanpa header Referer
+      enableWorker: true,
+      liveBufferLatencyChasing: true,  // kejar live edge, kurangi delay
+      liveBufferLatencyMaxLatency: 3,
+      liveBufferLatencyMinRemain: 0.5,
+      autoCleanupSourceBuffer: true
+    });
+    player.attachMediaElement(video);
+    player.load();
+    player.play().catch(() => { video.muted = true; player.play().catch(() => {}); });
+
+    player.on(mpegts.Events.ERROR, (type, detail) => {
+      if (retries < 5) {
+        retries++;
+        show("Gagal memuat (" + detail + "), mencoba lagi " + retries + "/5...");
+        setTimeout(start, 2000);
+      } else {
+        show("Error: " + detail + ". Stream mati atau diblokir (CORS/akses).");
+      }
+    });
+  }
+
+  video.addEventListener("playing", () => { retries = 0; show(""); });
+
+  if (!SRC) {
+    show("URL kosong. Pakai: flv.html?url=LINK_FLV");
+  } else if (!window.mpegts || !mpegts.getFeatureList().mseLivePlayback) {
+    show("Browser ini tidak mendukung pemutaran FLV (butuh MSE).");
+  } else {
+    start();
+  }
+
+  video.addEventListener("dblclick", () => {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else (video.requestFullscreen || video.webkitEnterFullscreen).call(video);
+  });
+</script>
+</body>
+</html>
