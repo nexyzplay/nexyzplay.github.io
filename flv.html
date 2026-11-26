@@ -1,119 +1,68 @@
 <!DOCTYPE html>
-<html lang="id">
+<html>
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="referrer" content="no-referrer">
-<title>FLV Player</title>
-<style>
-  html, body { margin: 0; width: 100%; height: 100%; background: #000; overflow: hidden; }
-  video { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
-  #msg {
-    position: fixed; left: 50%; bottom: 12%; transform: translateX(-50%);
-    max-width: 90%; padding: 8px 14px; border-radius: 6px;
-    background: rgba(0,0,0,.75); color: #fff; font: 14px system-ui, sans-serif;
-    text-align: center; display: none;
-  }
-</style>
+  <meta charset="utf-8">
+  <title>Huya Player</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xgplayer@3.0.20/dist/index.min.css">
 </head>
 <body>
-<video id="video" controls autoplay playsinline referrerpolicy="no-referrer"></video>
-<div id="msg" role="status"></div>
+  <div id="player"></div>
+  <p id="status"></p>
 
-<script src="https://cdn.jsdelivr.net/npm/flv.js@1.6.2/dist/flv.min.js"></script>
-<script>
-  // Format biasa  : flv2.html?url=LINK_FLV
-  // Format resolve: flv2.html?resolve=1&url=LINK   (LINK?json=1 harus mengembalikan {"url":"..."})
-  const m = location.search.match(/[?&]url=(.*)$/);
-  let SRC = m ? m[1] : "";
-  if (/^https?%3A/i.test(SRC)) SRC = decodeURIComponent(SRC);
-  const RESOLVE = /[?&]resolve=1(&|$)/.test(location.search);
+  <script src="https://cdn.jsdelivr.net/npm/xgplayer@3.0.20/dist/index.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xgplayer-flv@3.0.20/dist/index.min.js"></script>
+  <script>
+    const status = document.getElementById('status');
+    const id = new URLSearchParams(location.search).get('id');
+    const API = `https://mp.huya.com/cache.php?m=Live&do=profileRoom&roomid=${id}`;
 
-  // Opsional proxy: const PROXY = "https://nama.akun.workers.dev/?u=";
-  const PROXY = "";
-  const viaProxy = u => (PROXY ? PROXY + encodeURIComponent(u) : u);
+    // Urutan percobaan: langsung -> lewat proxy
+    const attempts = [
+      API,
+      'https://corsproxy.io/?' + encodeURIComponent(API),
+      'https://api.allorigins.win/raw?url=' + encodeURIComponent(API)
+    ];
 
-  const video = document.getElementById("video");
-  const msg = document.getElementById("msg");
-  function show(t) { msg.textContent = t; msg.style.display = t ? "block" : "none"; }
-
-  let player = null, timer = null, retries = 0, pending = false, lastTime = 0, stuck = 0;
-
-  function destroy() {
-    clearInterval(timer);
-    if (player) {
-      try { player.pause(); player.unload(); player.detachMediaElement(); player.destroy(); } catch (e) {}
-      player = null;
-    }
-  }
-
-  function retry(reason) {
-    if (pending) return;
-    if (retries >= 5) { destroy(); show("Error: " + reason); return; }
-    retries++;
-    pending = true;
-    show("Gagal (" + reason + "), mencoba lagi " + retries + "/5...");
-    destroy();
-    setTimeout(() => { pending = false; start(); }, 2000);
-  }
-
-  async function getStreamUrl() {
-    if (!RESOLVE) return viaProxy(SRC);
-    const r = await fetch(SRC + (SRC.includes("?") ? "&" : "?") + "json=1", { referrerPolicy: "no-referrer" });
-    const j = await r.json();
-    if (!j.url) throw new Error("room offline / url kosong");
-    return viaProxy(j.url);
-  }
-
-  async function start() {
-    destroy();
-    let url;
-    try { url = await getStreamUrl(); }
-    catch (e) { retry("ambil link: " + e.message); return; }
-
-    player = flvjs.createPlayer({ type: "flv", isLive: true, url: url }, {
-      enableWorker: false,            // worker sering jadi sumber crash
-      enableStashBuffer: false,       // latency rendah, memori kecil
-      stashInitialSize: 128,
-      lazyLoad: false,
-      autoCleanupSourceBuffer: true,  // buang buffer lama supaya tidak membengkak
-      autoCleanupMaxBackwardDuration: 20,
-      autoCleanupMinBackwardDuration: 10,
-      referrerPolicy: "no-referrer"
-    });
-    player.attachMediaElement(video);
-    player.load();
-    player.play().catch(() => { video.muted = true; player.play().catch(() => {}); });
-
-    player.on(flvjs.Events.ERROR, (type, detail) => retry(type + "/" + detail));
-
-    // Watchdog: kejar live edge + restart otomatis kalau video macet
-    lastTime = 0; stuck = 0;
-    timer = setInterval(() => {
-      if (!player) return;
-      const b = video.buffered;
-      if (b.length) {
-        const end = b.end(b.length - 1);
-        if (end - video.currentTime > 3) video.currentTime = end - 0.5;
+    async function getRoom() {
+      for (const u of attempts) {
+        try {
+          const r = await fetch(u);
+          if (r.ok) return await r.json();
+        } catch (e) { /* coba berikutnya */ }
       }
-      if (!video.paused && video.currentTime === lastTime) {
-        if (++stuck >= 8) { stuck = 0; retry("macet"); }
-      } else stuck = 0;
-      lastTime = video.currentTime;
-    }, 1000);
-  }
+      throw new Error('Semua percobaan gagal (kemungkinan CORS)');
+    }
 
-  video.addEventListener("playing", () => { retries = 0; show(""); });
+    async function start() {
+      if (!id) { status.textContent = 'Pakai: ?id=ROOM_ID'; return; }
+      if (!FlvPlugin.isSupported()) { status.textContent = 'Browser tidak mendukung FLV (MSE)'; return; }
 
-  if (!SRC) show("URL kosong. Pakai: flv2.html?url=LINK_FLV");
-  else if (!window.flvjs || !flvjs.isSupported()) show("Browser ini tidak mendukung FLV (butuh MSE).");
-  else start();
+      status.textContent = 'Mengambil stream...';
+      try {
+        const j = await getRoom();
+        const d = j?.data;
+        if (!d || d.liveStatus !== 'ON') { status.textContent = 'Room offline / tidak ditemukan'; return; }
 
-  video.addEventListener("dblclick", () => {
-    if (document.fullscreenElement) document.exitFullscreen();
-    else (video.requestFullscreen || video.webkitEnterFullscreen).call(video);
-  });
-  window.addEventListener("beforeunload", destroy);
-</script>
+        const s = d.stream.baseSteamInfoList[0];
+        const url = `${s.sFlvUrl}/${s.sStreamName}.${s.sFlvUrlSuffix}?${s.sFlvAntiCode}`
+          .replace('http://', 'https://');
+
+        status.textContent = '';
+        new Player({
+          id: 'player',
+          url,
+          isLive: true,
+          autoplay: true,
+          autoplayMuted: true,
+          width: '100%',
+          height: 480,
+          plugins: [FlvPlugin]
+        });
+      } catch (e) {
+        status.textContent = 'Gagal: ' + e.message;
+      }
+    }
+    start();
+  </script>
 </body>
 </html>
