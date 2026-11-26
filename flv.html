@@ -3,13 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Huya Player (Landscape + Crop)</title>
+  <title>Huya Player (Landscape)</title>
   <style>
     html, body { margin: 0; height: 100%; background: #000; color: #fff; font-family: sans-serif; }
     #wrap { width: 100%; aspect-ratio: 16 / 9; background: #000; position: relative; overflow: hidden; }
     #container { width: 100%; height: 100%; }
 
-    /* Fullscreen asli: isi seluruh layar */
+    /* Fullscreen asli */
     #wrap:fullscreen { aspect-ratio: auto; width: 100%; height: 100%; }
 
     /* Putar paksa (fallback iPhone) */
@@ -21,17 +21,8 @@
       z-index: 9999;
     }
 
-    /* Lapisan tap-untuk-landscape */
-    #tap {
-      position: absolute; inset: 0; z-index: 5;
-      display: none; align-items: center; justify-content: center;
-      background: rgba(0,0,0,.35); font-size: 15px; text-align: center;
-    }
-    #tap span { background: rgba(0,0,0,.6); padding: 8px 14px; border-radius: 20px; }
-
     #bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 12px; }
     #bar button { padding: 6px 12px; border: 0; border-radius: 6px; background: #2a7fff; color: #fff; font-size: 14px; }
-    #bar button.off { background: #555; }
     #status { font-size: 13px; word-break: break-all; }
     #exit {
       display: none; position: fixed; top: 8px; left: 8px; z-index: 10000;
@@ -40,14 +31,10 @@
   </style>
 </head>
 <body>
-  <div id="wrap">
-    <div id="container"></div>
-    <div id="tap"><span>Tap untuk layar landscape</span></div>
-  </div>
+  <div id="wrap"><div id="container"></div></div>
   <button id="exit">✕ Keluar</button>
   <div id="bar">
     <button id="btnLand">Landscape</button>
-    <button id="btnCrop">Crop: ON</button>
     <span id="status"></span>
   </div>
 
@@ -55,9 +42,7 @@
   <script>
     const statusEl = document.getElementById('status');
     const wrap = document.getElementById('wrap');
-    const tap = document.getElementById('tap');
     const btnExit = document.getElementById('exit');
-    const btnCrop = document.getElementById('btnCrop');
     const show = m => statusEl.textContent = m;
     window.addEventListener('error', e => show('Error: ' + e.message));
     window.addEventListener('unhandledrejection', e => show('Error: ' + (e.reason?.message || e.reason)));
@@ -65,19 +50,11 @@
     const params = new URLSearchParams(location.search);
     const target = params.get('url');
     let player;
-    let crop = true;
-
-    function applyScale() {
-      // 0 = ada bar hitam, 2 = isi penuh (crop), tanpa peregangan
-      try { player && player.setScaleMode(crop ? 2 : 0); } catch (e) {}
-      btnCrop.textContent = 'Crop: ' + (crop ? 'ON' : 'OFF');
-      btnCrop.classList.toggle('off', !crop);
-    }
 
     function refit() {
       setTimeout(() => {
         try { player && player.resize && player.resize(); } catch (e) {}
-        applyScale();
+        try { player && player.setScaleMode(0); } catch (e) {} // 0 = tampil utuh, tanpa crop
       }, 150);
     }
 
@@ -87,8 +64,7 @@
       refit();
     }
 
-    async function goLandscape() {
-      tap.style.display = 'none';
+    document.getElementById('btnLand').onclick = async () => {
       try { player && player.audioResume && player.audioResume(); } catch (e) {}
       try {
         await wrap.requestFullscreen();
@@ -97,14 +73,10 @@
         }
         refit();
         return;
-      } catch (e) { /* fallback */ }
+      } catch (e) { /* tidak didukung, pakai putar CSS */ }
       forceRotate(true);
-    }
-
-    document.getElementById('btnLand').onclick = goLandscape;
-    tap.addEventListener('click', goLandscape);
+    };
     btnExit.onclick = () => forceRotate(false);
-    btnCrop.onclick = () => { crop = !crop; applyScale(); };
 
     document.addEventListener('fullscreenchange', () => {
       if (!document.fullscreenElement && screen.orientation && screen.orientation.unlock) {
@@ -126,7 +98,7 @@
         container: document.getElementById('container'),
         videoBuffer: 1,
         isResize: true,
-        isFullResize: true,      // mode isi penuh (crop)
+        isFullResize: false,     // crop dimatikan total
         useMSE: false,
         text: '',
         loadingText: 'Memuat...',
@@ -136,9 +108,8 @@
         operateBtns: { fullscreen: false, screenshot: true, play: true, audio: true }
       });
       player.on('error', e => show('Stream error: ' + e));
-      player.on('start', () => { applyScale(); tap.style.display = 'flex'; });
+      player.on('start', refit);
       player.play(url);
-      setTimeout(applyScale, 800);
     }
 
     async function start() {
