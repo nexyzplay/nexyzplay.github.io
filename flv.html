@@ -27,6 +27,11 @@
   let SRC = m ? m[1] : "";
   if (/^https?%3A/i.test(SRC)) SRC = decodeURIComponent(SRC);
 
+  // Isi kalau perlu lewat proxy (untuk server tanpa CORS), contoh:
+  // const PROXY = "https://nama.akun.workers.dev/?u=";
+  const PROXY = "";
+  const STREAM_URL = PROXY ? PROXY + encodeURIComponent(SRC) : SRC;
+
   const video = document.getElementById("video");
   const msg = document.getElementById("msg");
   function show(t) { msg.textContent = t; msg.style.display = t ? "block" : "none"; }
@@ -39,7 +44,7 @@
     player = mpegts.createPlayer({
       type: "flv",          // dipaksa FLV, jadi URL tanpa ekstensi tetap jalan
       isLive: true,
-      url: SRC
+      url: STREAM_URL
     }, {
       referrerPolicy: "no-referrer",   // tanpa header Referer
       enableWorker: true,
