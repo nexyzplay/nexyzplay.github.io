@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<title>M3U8 Player</title>
+<style>
+  html, body { margin: 0; width: 100%; height: 100%; background: #000; overflow: hidden; }
+  video { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
+  #msg {
+    position: fixed; left: 50%; bottom: 12%; transform: translateX(-50%);
+    max-width: 90%; padding: 8px 14px; border-radius: 6px;
+    background: rgba(0,0,0,.75); color: #fff; font: 14px system-ui, sans-serif;
+    text-align: center; display: none;
+  }
+</style>
+</head>
+<body>
+<video id="video" controls autoplay playsinline referrerpolicy="no-referrer"></video>
+<div id="msg" role="status"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js"></script>
+<script>
+  // Format: m3u8.html?url=LINK_M3U8
+  // Mengambil semua teks setelah "url=" apa adanya, jadi link m3u8 yang
+  // punya parameter sendiri (?token=...&exp=...) tidak terpotong.
+  const m = location.search.match(/[?&]url=(.*)$/);
+  let SRC = m ? m[1] : "";
+  if (/^https?%3A/i.test(SRC)) SRC = decodeURIComponent(SRC); // kalau di-encode
+  const video = document.getElementById("video");
+  const msg = document.getElementById("msg");
+
+  function show(text) {
+    msg.textContent = text;
+    msg.style.display = text ? "block" : "none";
+  }
+
+  if (!SRC) {
+    show("URL kosong. Pakai: m3u8.html?url=LINK_M3U8");
+  } else if (window.Hls && Hls.isSupported()) {
+    const hls = new Hls({
+      fetchSetup: (ctx, init) => {
+        init.referrerPolicy = "no-referrer";
+        init.referrer = "";
+        return new Request(ctx.url, init);
+      }
+    });
+    hls.loadSource(SRC);
+    hls.attachMedia(video);
+    hls.on(Hls.Events.MANIFEST_PARSED, () => {
+      show("");
+      video.play().catch(() => { video.muted = true; video.play().catch(() => {}); });
+    });
+    hls.on(Hls.Events.ERROR, (_, d) => {
+      if (!d.fatal) return;
+      if (d.type === Hls.ErrorTypes.NETWORK_ERROR) { show("Jaringan bermasalah, mencoba lagi..."); hls.startLoad(); }
+      else if (d.type === Hls.ErrorTypes.MEDIA_ERROR) { show("Memulihkan media..."); hls.recoverMediaError(); }
+      else { show("Error: " + d.details); hls.destroy(); }
+    });
+    video.addEventListener("playing", () => show(""));
+  } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+    video.src = SRC;
+    video.play().catch(() => {});
+  } else {
+    show("Browser tidak mendukung HLS.");
+  }
+
+  // Klik dua kali untuk fullscreen sungguhan
+  video.addEventListener("dblclick", () => {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else (video.requestFullscreen || video.webkitEnterFullscreen).call(video);
+  });
+</script>
+</body>
+</html>
