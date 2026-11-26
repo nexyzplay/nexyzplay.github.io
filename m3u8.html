@@ -7,33 +7,60 @@
 <title>M3U8 Player</title>
 <style>
   html, body { margin: 0; width: 100%; height: 100%; background: #000; overflow: hidden; }
-  video { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
+  video {
+    position: fixed; inset: 0; width: 100%; height: 100%;
+    object-fit: contain; background: #000;
+  }
+  /* Sembunyikan overlay saat fullscreen agar tidak menutupi UI sistem */
+  :fullscreen #msg, :-webkit-full-screen #msg { display: none !important; }
   #msg {
     position: fixed; left: 50%; bottom: 12%; transform: translateX(-50%);
     max-width: 90%; padding: 8px 14px; border-radius: 6px;
     background: rgba(0,0,0,.75); color: #fff; font: 14px system-ui, sans-serif;
-    text-align: center; display: none;
+    text-align: center; display: none; z-index: 10;
   }
 </style>
 </head>
 <body>
-<video id="video" controls autoplay playsinline referrerpolicy="no-referrer"></video>
+<video id="video" controls autoplay playsinline
+       referrerpolicy="no-referrer"
+       disablepictureinpicture
+       controlslist="nodownload noplaybackrate"></video>
 <div id="msg" role="status"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js"></script>
 <script>
-  // Format: m3u8.html?url=LINK_M3U8
-  // Mengambil semua teks setelah "url=" apa adanya, jadi link m3u8 yang
-  // punya parameter sendiri (?token=...&exp=...) tidak terpotong.
   const m = location.search.match(/[?&]url=(.*)$/);
   let SRC = m ? m[1] : "";
-  if (/^https?%3A/i.test(SRC)) SRC = decodeURIComponent(SRC); // kalau di-encode
+  if (/^https?%3A/i.test(SRC)) SRC = decodeURIComponent(SRC);
   const video = document.getElementById("video");
   const msg = document.getElementById("msg");
 
   function show(text) {
     msg.textContent = text;
     msg.style.display = text ? "block" : "none";
+  }
+
+  // --- Helper fullscreen dengan fallback vendor ---
+  function enterFullscreen(el) {
+    const fn = el.requestFullscreen
+      || el.webkitRequestFullscreen
+      || el.webkitEnterFullscreen
+      || el.mozRequestFullScreen
+      || el.msRequestFullscreen;
+    if (fn) { try { fn.call(el); } catch (e) {} }
+  }
+  function exitFullscreen() {
+    const fn = document.exitFullscreen
+      || document.webkitExitFullscreen
+      || document.mozCancelFullScreen
+      || document.msExitFullscreen;
+    if (fn) { try { fn.call(document); } catch (e) {} }
+  }
+  function toggleFullscreen() {
+    const isFs = document.fullscreenElement || document.webkitFullscreenElement;
+    if (isFs) exitFullscreen();
+    else enterFullscreen(document.documentElement);
   }
 
   if (!SRC) {
@@ -67,10 +94,18 @@
   }
 
   // Klik dua kali untuk fullscreen sungguhan
-  video.addEventListener("dblclick", () => {
-    if (document.fullscreenElement) document.exitFullscreen();
-    else (video.requestFullscreen || video.webkitEnterFullscreen).call(video);
-  });
+  video.addEventListener("dblclick", toggleFullscreen);
+
+  // Sembunyikan overlay saat fullscreen berubah
+  ["fullscreenchange", "webkitfullscreenchange"].forEach(ev =>
+    document.addEventListener(ev, () => {
+      const isFs = document.fullscreenElement || document.webkitFullscreenElement;
+      if (isFs) show("");
+    })
+  );
+
+  // Cegah menu konteks saat long-press
+  video.addEventListener("contextmenu", e => e.preventDefault());
 </script>
 </body>
 </html>
