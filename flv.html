@@ -6,16 +6,31 @@
   <title>Nexyz</title>
   <style>
     html, body { margin: 0; height: 100%; background: #000; color: #fff; font-family: sans-serif; overflow: hidden; }
-    #wrap { width: 100%; aspect-ratio: 16 / 9; max-height: 100vh; background: #000; position: relative; overflow: hidden; margin: 0 auto; }
+    
+    /* Paksa GPU rendering untuk container video */
+    #wrap { 
+      width: 100%; aspect-ratio: 16 / 9; max-height: 100vh; background: #000; 
+      position: relative; overflow: hidden; margin: 0 auto;
+      transform: translateZ(0); 
+      will-change: transform;
+    }
     #container { width: 100%; height: 100%; }
+
+    /* Fullscreen */
     #wrap:fullscreen { width: 100vw; height: 100vh; aspect-ratio: auto; max-height: none; margin: 0; }
     #wrap:fullscreen #ctrlPanel { display: none !important; }
+
+    /* Rotated fallback */
     #wrap.rotated {
       position: fixed; top: 0; left: 0; width: 100vh; height: 100vw; aspect-ratio: auto; max-height: none;
       transform-origin: top left; transform: translateX(100vw) rotate(90deg); z-index: 9999;
     }
     #wrap.rotated #ctrlPanel { display: none !important; }
+
+    /* Status / Error */
     #status { position: absolute; top: 20px; left: 20px; z-index: 100; font-size: 14px; color: #fff; text-shadow: 1px 1px 2px #000; pointer-events: none; }
+
+    /* Panel Kontrol */
     #ctrlPanel {
       position: absolute; bottom: 0; left: 0; width: 100%; z-index: 50;
       background: rgba(0,0,0,0.8); padding: 10px 15px; display: flex; flex-direction: column; gap: 8px;
@@ -99,12 +114,15 @@
     ['click', 'touchend'].forEach(ev => document.addEventListener(ev, keepAwake, { passive: true }));
     keepAwake();
 
-    // ===== Refit / Resize =====
+    // ===== Refit / Resize (dipanggil HANYA saat fullscreen / rotate berubah) =====
+    // Tidak dipanggil terus-menerus untuk menghindari reflow
     function refit() {
+      // Delay sedikit agar layout selesai berubah dulu
       setTimeout(() => {
-        try { player && player.resize && player.resize(); } catch (e) {}
-        try { player && player.setScaleMode(0); } catch (e) {}
-      }, 150);
+        try { if (player && player.resize) player.resize(); } catch (e) {}
+        // setScaleMode(0) = showAll (tanpa crop)
+        try { if (player && player.setScaleMode) player.setScaleMode(0); } catch (e) {}
+      }, 200);
     }
 
     // ===== Rotated fallback =====
@@ -154,7 +172,6 @@
       }
       refit();
     });
-    window.addEventListener('resize', refit);
 
     // ===== Tombol Kontrol =====
     const cPlay = document.getElementById('cPlay');
@@ -168,7 +185,6 @@
     let lastVol = 80;
 
     // ===== AUDIO UNLOCK =====
-    // Harus dipanggil LANGSUNG di dalam event handler gesture (bukan setTimeout/async)
     function unlockAudio() {
       if (audioUnlocked) return;
       try {
@@ -182,13 +198,11 @@
       } catch (e) {}
     }
 
-    // Listener gesture pertama pada area video / panel / halaman
     wrap.addEventListener('click', unlockAudio);
     wrap.addEventListener('touchstart', unlockAudio, { passive: true });
     document.body.addEventListener('click', unlockAudio, { once: true });
     document.body.addEventListener('touchstart', unlockAudio, { once: true, passive: true });
 
-    // ===== Tombol Play / Pause =====
     cPlay.onclick = () => {
       try {
         if (playing) {
@@ -199,12 +213,11 @@
           player && player.play && player.play();
           cPlay.textContent = '⏸';
           playing = true;
-          unlockAudio();  // gesture langsung
+          unlockAudio();
         }
       } catch (e) {}
     };
 
-    // ===== Tombol Mute =====
     cMute.onclick = () => {
       try {
         muted = !muted;
@@ -223,7 +236,6 @@
       } catch (e) {}
     };
 
-    // ===== Slider Volume =====
     cVol.oninput = () => {
       try {
         const v = +cVol.value;
@@ -248,7 +260,7 @@
       wrap._ctrlTimer = setTimeout(() => wrap.classList.remove('showCtrl'), 3000);
     }, { passive: true });
 
-    // ===== Player Jessibuca =====
+    // ===== Player Jessibuca (PERFORMA MAKSIMAL) =====
     function pickUrl(j) {
       if (typeof j === 'string') return j;
       return j?.url || j?.flv || j?.data?.url || j?.data?.flv || null;
@@ -260,14 +272,20 @@
 
       player = new Jessibuca({
         container: document.getElementById('container'),
-        videoBuffer: 5,
-        isResize: true,
-        isFullResize: false,
-        useMSE: false,            // soft-decode, audio lebih kompatibel
-        useWCS: false,
-        forceNoOffscreen: false,
-        hasAudio: true,           // paksa decode audio
-        isNotMute: true,          // siap unmute
+        
+        // --- Optimasi Performa ---
+        videoBuffer: 10,          // Buffer besar: serap jitter jaringan
+        isResize: false,          // Matikan auto-resize (hemat CPU, ukuran diatur CSS)
+        isFullResize: false,      // Jangan paksa render full
+        useMSE: true,             // MSE lebih ringan dari WebGL di banyak device
+        useWCS: false,            // Matikan WebCodecs (kadang berat)
+        forceNoOffscreen: true,   // Paksa render on-screen (hindari overhead offscreen di device tertentu)
+        
+        // Audio
+        hasAudio: true,
+        isNotMute: true,
+        
+        // UI
         showBandwidth: false,
         text: '',
         loadingText: 'Memuat...',
@@ -277,18 +295,11 @@
       player.on('error', e => show('Stream error: ' + e));
 
       player.on('start', () => {
-        refit();
+        refit(); // Hanya resize saat start, bukan berulang
         keepAwake();
         playing = true;
         cPlay.textContent = '⏸';
 
-        // Debug: cek state mute & volume
-        try {
-          console.log('[Jessibuca] isMute:', player.isMute && player.isMute());
-          console.log('[Jessibuca] volume:', player.getVolume && player.getVolume());
-        } catch (e) {}
-
-        // Set volume (tidak memanggil audioResume di sini, karena bukan gesture)
         try { player.setVolume && player.setVolume(lastVol / 100); } catch (e) {}
       });
 
