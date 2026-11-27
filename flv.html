@@ -104,7 +104,7 @@
         show('Error: ' + (e.reason?.message || e.reason));
       });
 
-      // ===== Cegah layar redup / mati (Native Wake Lock) =====
+      // ===== Cegah layar redup / mati =====
       async function keepAwake() {
         if (wakeLock || !('wakeLock' in navigator)) return;
         try {
@@ -161,26 +161,36 @@
       });
       window.addEventListener('resize', refit);
 
-      // ===== Player (Konfigurasi Ringan & Anti Slow-Mo) =====
+      // ===== Deteksi Otomatis WebCodecs (useWCS) =====
+      function canUseWCS() {
+        return Boolean(
+          window.isSecureContext &&
+          typeof window.VideoDecoder === 'function'
+        );
+      }
+
+      // ===== Player (Ringan, Anti Slow-Mo, Auto useWCS) =====
       function pickUrl(j) {
         if (typeof j === 'string') return j.trim();
         return j?.url || j?.flv || j?.data?.url || j?.data?.flv || null;
       }
 
-      function play(url) {
+      function play(url, forceDisableWcs = false) {
         show('');
         if (player) {
           try { player.destroy(); } catch (_) {}
           player = null;
         }
 
+        const useWCS = forceDisableWcs ? false : canUseWCS();
+
         player = new Jessibuca({
           container,
-          videoBuffer: 0.2,      // Buffer kecil agar tidak menumpuk & slow-mo
-          isResize: false,       // Hindari resize berulang tiap frame
-          isFullResize: false,   // Tanpa crop
-          useMSE: false,         // Kontrol buffer langsung di Jessibuca
-          useWCS: false,         // Ubah ke true jika ingin uji WebCodecs di perangkat tertentu
+          videoBuffer: 0.2,
+          isResize: false,
+          isFullResize: false,
+          useMSE: false,
+          useWCS,
           text: '',
           loadingText: 'Memuat...',
           showBandwidth: false,
@@ -194,11 +204,19 @@
           }
         });
 
-        player.on('error', e => show('Stream error: ' + e));
+        player.on('error', e => {
+          if (useWCS && !forceDisableWcs) {
+            play(url, true);
+            return;
+          }
+          show('Stream error: ' + e);
+        });
+
         player.on('start', () => {
           refit();
           keepAwake();
         });
+
         player.play(url);
       }
 
@@ -238,7 +256,6 @@
             return;
           }
 
-          // Jika server melakukan HTTP redirect ke URL stream asli
           if (res.url && res.url !== target) {
             play(res.url);
             return;
@@ -247,7 +264,6 @@
           play(target);
         } catch (_) {
           clearTimeout(timer);
-          // Fallback langsung ke target jika fetch diblokir CORS atau timeout
           play(target);
         }
       }
