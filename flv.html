@@ -3,50 +3,34 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Nexyz - XGPlayer</title>
-
-  <!-- XGPlayer CSS -->
-  <link rel="stylesheet" href="https://unpkg.byted-static.com/xgplayer/3.0.16/dist/index.min.css">
-
+  <title>Nexyz - mpegts.js</title>
   <style>
     html, body { margin: 0; height: 100%; background: #000; color: #fff; font-family: sans-serif; overflow: hidden; }
     #wrap { width: 100%; aspect-ratio: 16 / 9; max-height: 100vh; background: #000; position: relative; overflow: hidden; margin: 0 auto; }
     #container { width: 100%; height: 100%; }
-
     #wrap:fullscreen { width: 100vw; height: 100vh; aspect-ratio: auto; max-height: none; margin: 0; }
     #wrap:fullscreen #ctrlPanel { display: none !important; }
-
     #wrap.rotated {
       position: fixed; top: 0; left: 0; width: 100vh; height: 100vw; aspect-ratio: auto; max-height: none;
       transform-origin: top left; transform: translateX(100vw) rotate(90deg); z-index: 9999;
     }
     #wrap.rotated #ctrlPanel { display: none !important; }
-
     #status { position: absolute; top: 20px; left: 20px; z-index: 100; font-size: 14px; color: #fff; text-shadow: 1px 1px 2px #000; pointer-events: none; }
-
     #ctrlPanel {
       position: absolute; bottom: 0; left: 0; width: 100%; z-index: 50;
       background: rgba(0,0,0,0.8); padding: 10px 15px; display: flex; flex-direction: column; gap: 8px;
       box-sizing: border-box; opacity: 0; transition: opacity 0.2s;
     }
     #wrap:hover #ctrlPanel, #wrap.showCtrl #ctrlPanel { opacity: 1; }
-
     .progress-bar { width: 100%; height: 3px; background: rgba(255,255,255,0.2); border-radius: 2px; }
     .progress-bar-inner { height: 100%; width: 100%; background: #ff0000; border-radius: 2px; }
-
     .controls-row { display: flex; justify-content: space-between; align-items: center; color: #fff; font-size: 13px; }
     .left-controls, .right-controls { display: flex; align-items: center; gap: 15px; }
-
-    .controls-row button {
-      background: transparent; border: none; color: #fff; cursor: pointer;
-      font-size: 16px; padding: 5px; display: flex; align-items: center; justify-content: center;
-    }
+    .controls-row button { background: transparent; border: none; color: #fff; cursor: pointer; font-size: 16px; padding: 5px; display: flex; align-items: center; justify-content: center; }
     .controls-row button:hover { color: #ccc; }
-
     .vol-wrap { display: flex; align-items: center; gap: 5px; }
     .vol-wrap input[type=range] { width: 70px; accent-color: #fff; cursor: pointer; }
     .time-display { font-family: monospace; font-size: 13px; }
-
     #exit { display: none; position: fixed; top: 10px; left: 10px; z-index: 10000; padding: 6px 10px; border: 0; border-radius: 6px; background: rgba(0,0,0,0.6); color: #fff; cursor: pointer; }
   </style>
 </head>
@@ -54,7 +38,6 @@
   <div id="wrap">
     <div id="container"></div>
     <div id="status"></div>
-
     <div id="ctrlPanel">
       <div class="progress-bar"><div class="progress-bar-inner"></div></div>
       <div class="controls-row">
@@ -73,16 +56,10 @@
       </div>
     </div>
   </div>
-
   <button id="exit">✕ Keluar</button>
 
-  <!-- NoSleep -->
   <script src="https://cdn.jsdelivr.net/npm/nosleep.js@0.12.0/dist/NoSleep.min.js"></script>
-
-  <!-- XGPlayer + FLV Plugin -->
-  <script src="https://unpkg.byted-static.com/xgplayer/3.0.16/dist/index.min.js"></script>
-  <script src="https://unpkg.byted-static.com/xgplayer-flv/3.0.16/dist/index.min.js"></script>
-
+  <script src="https://cdn.jsdelivr.net/npm/mpegts.js@latest/dist/mpegts.min.js"></script>
   <script>
     const statusEl = document.getElementById('status');
     const wrap = document.getElementById('wrap');
@@ -94,12 +71,13 @@
     const params = new URLSearchParams(location.search);
     const target = params.get('url');
     let player = null;
+    let videoEl = null;
+    let audioUnlocked = false;
 
     // ===== Cegah layar redup / mati =====
     let wakeLock = null;
     const noSleep = window.NoSleep ? new NoSleep() : null;
     let noSleepOn = false;
-
     async function keepAwake() {
       if (wakeLock) return;
       try {
@@ -113,7 +91,6 @@
         if (noSleep && !noSleepOn) { await noSleep.enable(); noSleepOn = true; }
       } catch (e) {}
     }
-
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') keepAwake();
     });
@@ -124,7 +101,10 @@
     // ===== Refit =====
     function refit() {
       setTimeout(() => {
-        try { if (player && player.resize) player.resize(); } catch (e) {}
+        if (videoEl) {
+          // mpegts.js menggunakan elemen video langsung, tidak perlu resize manual
+          // tapi kita pastikan video mengisi container
+        }
       }, 150);
     }
 
@@ -132,27 +112,20 @@
     function forceRotate(on) {
       wrap.classList.toggle('rotated', on);
       btnExit.style.display = on ? 'block' : 'none';
-      refit();
     }
 
     // ===== Fullscreen toggle =====
     async function toggleFullscreen() {
       keepAwake();
-
       if (document.fullscreenElement) {
         try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch (e) {}
         try { await document.exitFullscreen(); } catch (e) {}
-        refit();
         return;
       }
-      if (wrap.classList.contains('rotated')) {
-        forceRotate(false);
-        return;
-      }
+      if (wrap.classList.contains('rotated')) { forceRotate(false); return; }
       try {
         await wrap.requestFullscreen();
         if (screen.orientation && screen.orientation.lock) await screen.orientation.lock('landscape');
-        refit();
         return;
       } catch (e) { forceRotate(true); }
     }
@@ -162,7 +135,6 @@
       if (document.fullscreenElement) {
         try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch (e) {}
         try { await document.exitFullscreen(); } catch (e) {}
-        refit();
       }
     };
 
@@ -172,9 +144,7 @@
       if (!document.fullscreenElement && screen.orientation && screen.orientation.unlock) {
         try { screen.orientation.unlock(); } catch (e) {}
       }
-      refit();
     });
-    window.addEventListener('resize', refit);
 
     // ===== Tombol Kontrol =====
     const cPlay = document.getElementById('cPlay');
@@ -187,63 +157,55 @@
     let muted = false;
     let lastVol = 80;
 
-    // ===== AUDIO UNLOCK (sama seperti sebelumnya) =====
-    let audioUnlocked = false;
+    // ===== AUDIO UNLOCK =====
     function unlockAudio() {
-      if (audioUnlocked || !player) return;
+      if (audioUnlocked || !videoEl) return;
       try {
-        player.muted = false;
-        player.volume = lastVol / 100;
+        videoEl.muted = false;
+        videoEl.volume = lastVol / 100;
       } catch (e) {}
       audioUnlocked = true;
       cMute.textContent = '🔊';
     }
-
     wrap.addEventListener('click', unlockAudio);
     wrap.addEventListener('touchstart', unlockAudio, { passive: true });
 
     cPlay.onclick = () => {
-      try {
-        if (!player) return;
-        if (playing) {
-          player.pause();
-          cPlay.textContent = '▶';
-          playing = false;
-        } else {
-          player.play();
-          cPlay.textContent = '⏸';
-          playing = true;
-          unlockAudio();
-        }
-      } catch (e) {}
+      if (!videoEl) return;
+      if (playing) {
+        videoEl.pause();
+        cPlay.textContent = '▶';
+        playing = false;
+      } else {
+        videoEl.play();
+        cPlay.textContent = '⏸';
+        playing = true;
+        unlockAudio();
+      }
     };
 
     cMute.onclick = () => {
-      try {
-        if (!player) return;
-        muted = !muted;
-        if (muted) {
-          lastVol = +cVol.value || 80;
-          cVol.value = 0;
-          player.volume = 0;
-          cMute.textContent = '🔇';
-        } else {
-          cVol.value = lastVol;
-          player.muted = false;
-          player.volume = lastVol / 100;
-          cMute.textContent = '🔊';
-        }
-      } catch (e) {}
+      if (!videoEl) return;
+      muted = !muted;
+      if (muted) {
+        lastVol = +cVol.value || 80;
+        cVol.value = 0;
+        videoEl.volume = 0;
+        cMute.textContent = '🔇';
+      } else {
+        cVol.value = lastVol;
+        videoEl.muted = false;
+        videoEl.volume = lastVol / 100;
+        cMute.textContent = '🔊';
+      }
     };
 
     cVol.oninput = () => {
-      try {
-        if (!player) return;
-        const v = +cVol.value;
-        player.volume = v / 100;
-        if (v > 0) { muted = false; cMute.textContent = '🔊'; }
-        else { muted = true; cMute.textContent = '🔇'; }
-      } catch (e) {}
+      if (!videoEl) return;
+      const v = +cVol.value;
+      videoEl.volume = v / 100;
+      if (v > 0) { muted = false; cMute.textContent = '🔊'; }
+      else { muted = true; cMute.textContent = '🔇'; }
     };
 
     cFull.onclick = toggleFullscreen;
@@ -254,7 +216,7 @@
       wrap._ctrlTimer = setTimeout(() => wrap.classList.remove('showCtrl'), 3000);
     }, { passive: true });
 
-    // ===== XGPlayer Init =====
+    // ===== mpegts.js Init =====
     function pickUrl(j) {
       if (typeof j === 'string') return j;
       return j?.url || j?.flv || j?.data?.url || j?.data?.flv || null;
@@ -266,57 +228,53 @@
         try { player.destroy(); } catch (e) {}
         player = null;
       }
+      const container = document.getElementById('container');
+      container.innerHTML = '';
 
-      // Cek dukungan FLV plugin
-      if (!window.FlvPlugin || !window.FlvPlugin.isSupported()) {
-        show('Browser tidak mendukung FLV (butuh MSE)');
+      if (!window.mpegts || !mpegts.getFeatureList().mseLivePlayback) {
+        show('Browser tidak mendukung FLV live via MSE');
         return;
       }
 
-      player = new window.Player({
-        id: 'container',
-        url: url,
+      videoEl = document.createElement('video');
+      videoEl.style.width = '100%';
+      videoEl.style.height = '100%';
+      videoEl.style.objectFit = 'contain';
+      videoEl.setAttribute('playsinline', '');
+      container.appendChild(videoEl);
+
+      player = mpegts.createPlayer({
+        type: 'flv',
         isLive: true,
-        autoplay: true,
-        playsinline: true,
-        volume: lastVol / 100,
-        plugins: [window.FlvPlugin],
-        // Matikan kontrol bawaan xgplayer karena kita pakai panel sendiri
-        controls: false,
-        // Konfigurasi FLV
-        flv: {
-          targetLatency: 5,      // target delay 5 detik
-          maxLatency: 10,        // kalau delay >10 detik, seek ke target
-          bufferBehind: 10,      // simpan buffer 10 detik ke belakang
-          retryCount: 3,
-          retryDelay: 1000,
-          loadTimeout: 10000
-        }
+        url: url
+      }, {
+        enableWorker: true,
+        lazyLoad: false,
+        liveBufferLatencyChasing: true,
+        liveBufferLatencyMaxLatency: 10,
+        liveBufferLatencyMinRemain: 2
       });
 
-      player.on('error', (e) => {
-        show('Stream error: ' + (e?.message || e));
+      player.attachMediaElement(videoEl);
+
+      player.on(mpegts.Events.ERROR, (type, detail, info) => {
+        show('Stream error: ' + (info?.msg || detail));
       });
 
-      player.on('start', () => {
-        refit();
-        keepAwake();
+      player.on(mpegts.Events.MEDIA_INFO, () => {
         playing = true;
         cPlay.textContent = '⏸';
-        try { player.volume = lastVol / 100; } catch (e) {}
+        keepAwake();
+        videoEl.volume = lastVol / 100;
       });
 
-      // Fallback kalau autoplay diblokir
-      player.on('autoplay_was_prevented', () => {
-        cPlay.textContent = '▶';
-        playing = false;
-        show('Klik play untuk memulai');
-      });
+      player.load();
+      player.play();
     }
 
     let secondsElapsed = 0;
     setInterval(() => {
-      if (playing && player) {
+      if (playing && videoEl) {
         secondsElapsed++;
         const m = Math.floor(secondsElapsed / 60).toString().padStart(2, '0');
         const s = (secondsElapsed % 60).toString().padStart(2, '0');
@@ -326,13 +284,11 @@
 
     async function start() {
       if (!target) return show('Pakai: ?url=ENDPOINT/?id=ROOM_ID');
-
       show('Loading...');
       const ctrl = new AbortController();
       try {
         const res = await fetch(target, { signal: ctrl.signal });
         const type = res.headers.get('content-type') || '';
-
         if (type.includes('json')) {
           const j = await res.json();
           if (j?.live === false) return show('Room offline / tidak ditemukan');
