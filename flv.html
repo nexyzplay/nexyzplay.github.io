@@ -1,89 +1,234 @@
 <!DOCTYPE html>
-<html>
+<html lang="id">
 <head>
-  <meta charset="utf-8">
-  <script
-    src="https://code.jquery.com/jquery-3.2.1.min.js"
-    integrity="sha256-hwg4gsxgFZhOsEEamdOYGBf13FyQuiTwlAQgxVSNgt4="
-    crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-  <script src="mousetrap.min.js" charset="utf-8"></script>
-  <style>
-    html, body {
-      margin: 0;
-      padding: 0;
-      width: 100%;
-      height: 100%;
-      background-color: black;
-      color: #fff;
-      font-family: sans-serif;
-      overflow: hidden;
-    }
-    #single-view, #multi-view-frame {
-      position: relative;
-      width: 100%;
-      height: 100%;
-    }
-    #video-placeholder {
-      position: absolute;
-      inset: 0;
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      opacity: 0.3;
-    }
-    #video {
-      position: absolute;
-      top: 0;
-      right: 0;
-      bottom: 0;
-      left: 0;
-      margin: auto;
-      max-height: 100%;
-      max-width: 100%;
-      width: 100%;
-      height: 100%;
-    }
-    [data-player-mount] {
-      position: absolute;
-      inset: 0;
-      width: 100%;
-      height: 100%;
-      pointer-events: none;
-    }
-    [data-player-mount]:not(:empty) {
-      pointer-events: auto;
-    }
-    #countdown {
-      display: none;
-      position: absolute;
-      inset: 0;
-      background: rgba(0, 0, 0, 0.8);
-      align-items: center;
-      justify-content: center;
-      flex-direction: column;
-      gap: 6px;
-    }
-    #multi-view-frame {
-      display: none;
-      border: 0;
-    }
-  </style>
-  <title>M3U8 Player running...</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FLV Live Player</title>
+    <script src="https://cdn.jsdelivr.net/npm/mpegts.js@1.7.3/dist/mpegts.min.js"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            background-color: #000;
+            color: #fff;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+        #player-wrapper {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        video {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            background: #000;
+        }
+        #overlay-msg {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.85);
+            padding: 16px 24px;
+            border-radius: 8px;
+            border: 1px solid #333;
+            text-align: center;
+            font-size: 14px;
+            color: #f1f1f1;
+            max-width: 90%;
+            z-index: 10;
+            display: none;
+        }
+        #overlay-msg code {
+            display: block;
+            margin-top: 8px;
+            padding: 6px 10px;
+            background: #1a1a1a;
+            border-radius: 4px;
+            color: #4ade80;
+            word-break: break-all;
+        }
+    </style>
 </head>
 <body>
-  <div id="single-view">
-    <img id="video-placeholder" src="/images/index.png" alt="">
-    <video id="video" controls=""></video>
-    <div data-player-mount=""></div>
-    <div id="countdown">
-      <div class="countdown-title">Event will start in:</div>
-      <div class="countdown-timer"></div>
-    </div>
-  </div>
 
-  <iframe id="multi-view-frame" allowfullscreen></iframe>
+<div id="player-wrapper">
+    <video id="videoElement" controls autoplay muted playsinline></video>
+    <div id="overlay-msg"></div>
+</div>
 
-  <script src="player.js"></script>
+<script>
+    const videoElement = document.getElementById('videoElement');
+    const overlayMsg = document.getElementById('overlay-msg');
+
+    let player = null;
+    let reconnectTimer = null;
+
+    function showMessage(htmlContent) {
+        overlayMsg.innerHTML = htmlContent;
+        overlayMsg.style.display = 'block';
+    }
+
+    function hideMessage() {
+        overlayMsg.style.display = 'none';
+    }
+
+    // Ambil parameter wajib ?url=... (mendukung juga jika URL tidak di-encode)
+    function getStreamUrlFromQuery() {
+        const rawSearch = window.location.search;
+        if (!rawSearch) return null;
+
+        const urlParams = new URLSearchParams(rawSearch);
+        const paramUrl = urlParams.get('url');
+        if (!paramUrl) return null;
+
+        // Jika link di dalam ?url= mengandung '&' tanpa di-encode, ambil seluruh sisa string setelah 'url='
+        const match = rawSearch.match(/[?&]url=(.+)$/);
+        if (match && match[1]) {
+            try {
+                return decodeURIComponent(match[1].trim());
+            } catch (e) {
+                return match[1].trim();
+            }
+        }
+        return paramUrl.trim();
+    }
+
+    // Ikuti redirect (301/302) jika server mengizinkan HEAD/GET preflight
+    async function resolveRedirectUrl(initialUrl) {
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+            const response = await fetch(initialUrl, {
+                method: 'GET',
+                redirect: 'follow',
+                signal: controller.signal
+            });
+
+            clearTimeout(timeoutId);
+
+            // Tutup body stream segera agar tidak memakan bandwidth sebelum mpegts mengambil alih
+            if (response.body) {
+                response.body.cancel().catch(() => {});
+            }
+
+            if (response.url && response.url !== initialUrl) {
+                return response.url;
+            }
+        } catch (err) {
+            // Fallback ke URL awal jika preflight diblokir CORS; mpegts tetap mengikuti redirect bawaan browser
+        }
+        return initialUrl;
+    }
+
+    function destroyPlayer() {
+        if (player) {
+            try {
+                player.pause();
+                player.unload();
+                player.detachMediaElement();
+                player.destroy();
+            } catch (e) {}
+            player = null;
+        }
+    }
+
+    function scheduleReconnect(streamUrl) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = setTimeout(() => {
+            startPlayer(streamUrl);
+        }, 3000);
+    }
+
+    async function startPlayer(rawUrl) {
+        if (!mpegts.getFeatureList().mseLivePlayback) {
+            showMessage('Browser ini tidak mendukung pemutaran MSE Live FLV.');
+            return;
+        }
+
+        destroyPlayer();
+        showMessage('Menghubungkan ke stream...');
+
+        const finalUrl = await resolveRedirectUrl(rawUrl);
+
+        player = mpegts.createPlayer({
+            type: 'flv',
+            isLive: true,
+            url: finalUrl,
+            cors: true,
+            withCredentials: false
+        }, {
+            // --- ANTI PECAH / PATAH-PATAH TIAP 3 DETIK ---
+            enableWorker: true,
+            enableStashBuffer: true,
+            stashInitialSize: 384,              // Buffer awal 384KB agar GOP pertama mulus
+
+            // Kontrol buffer agar tidak drop frame saat pergantian keyframe (tiap ~3 detik)
+            liveBufferLatencyChasing: true,
+            liveBufferLatencyMaxLatency: 3.5,   // Toleransi delay maksimal 3.5 detik
+            liveBufferLatencyMinRemain: 0.8,    // Jaga sisa buffer minimal 0.8 detik agar tidak underrun
+
+            // Sinkronisasi audio-video & pembersihan memori
+            fixAudioTimestampGap: true,         // Mencegah stutter akibat celah timestamp audio
+            autoCleanupSourceBuffer: true,
+            autoCleanupMaxBackwardDuration: 15,
+            autoCleanupMinBackwardDuration: 5,
+            accurateSeek: false,
+            seekType: 'range'
+        });
+
+        player.attachMediaElement(videoElement);
+        player.load();
+
+        player.play().then(() => {
+            hideMessage();
+        }).catch(() => {
+            showMessage('Klik tombol Play pada video untuk memulai pemutaran.');
+        });
+
+        videoElement.addEventListener('playing', hideMessage, { once: true });
+
+        // Auto-reconnect jika terjadi error jaringan / stream terputus
+        player.on(mpegts.Events.ERROR, (errorType, errorDetail) => {
+            showMessage(`Koneksi terganggu (${errorDetail}). Menyambung ulang...`);
+            scheduleReconnect(rawUrl);
+        });
+    }
+
+    // Mencegah video freeze / ketinggalan jauh saat tab browser ditinggal lalu dibuka kembali
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden && videoElement.buffered.length > 0) {
+            const end = videoElement.buffered.end(videoElement.buffered.length - 1);
+            if (end - videoElement.currentTime > 4.0) {
+                videoElement.currentTime = end - 0.8;
+            }
+        }
+    });
+
+    // Inisialisasi saat halaman dimuat
+    const targetUrl = getStreamUrlFromQuery();
+    if (!targetUrl) {
+        showMessage(
+            'Parameter <b>url</b> wajib diisi.<br>Contoh penggunaan:' +
+            '<code>flv.html?url=https://xcdn-hy.vercel.app/?id=30805929</code>'
+        );
+    } else {
+        startPlayer(targetUrl);
+    }
+</script>
+
 </body>
 </html>
