@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Nexyz</title>
+  <meta name="referrer" content="no-referrer">
+  <title>DPlayer FLV Live Player</title>
   <style>
     * {
       box-sizing: border-box;
@@ -24,6 +25,21 @@
     #dplayer {
       width: 100%;
       height: 100%;
+    }
+    /* Sembunyikan kontrol & kursor saat idle (2 detik) */
+    #dplayer.controls-hidden .dplayer-controller,
+    #dplayer.controls-hidden .dplayer-controller-mask {
+      opacity: 0 !important;
+      visibility: hidden !important;
+      pointer-events: none !important;
+      transition: opacity 0.25s ease, visibility 0.25s ease;
+    }
+    #dplayer.controls-hidden {
+      cursor: none;
+    }
+    .dplayer-controller,
+    .dplayer-controller-mask {
+      transition: opacity 0.2s ease, visibility 0.2s ease;
     }
     .error-box {
       text-align: center;
@@ -48,21 +64,18 @@
 
   <div id="dplayer"></div>
 
-  <!-- Gunakan mpegts.js sebagai pengganti flv.js agar lebih stabil menangani redirect & live stream Huya -->
   <script src="https://cdn.jsdelivr.net/npm/mpegts.js@latest/dist/mpegts.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/dplayer@latest/dist/DPlayer.min.js"></script>
 
   <script>
-    // Ambil raw parameter 'url' agar jika ada parameter tambahan di dalam link tidak terpotong
     function getTargetUrl() {
       const search = window.location.search;
       const match = search.match(/[?&]url=([^&]+(?:&.*)?)/);
       if (!match) return null;
-      
+
       let rawUrl = match[1];
-      // Pisahkan jika ada parameter khusus player di akhir seperti &live=false
       rawUrl = rawUrl.replace(/&live=(true|false)/g, '');
-      
+
       try {
         return decodeURIComponent(rawUrl);
       } catch (e) {
@@ -72,9 +85,7 @@
 
     const urlParams = new URLSearchParams(window.location.search);
     const videoUrl = getTargetUrl();
-    // Default true untuk live stream (Huya), kecuali ditulis &live=false
-    const isLive = urlParams.get('live') !== 'false'; 
-
+    const isLive = urlParams.get('live') !== 'false';
     const container = document.getElementById('dplayer');
 
     if (!videoUrl) {
@@ -90,12 +101,26 @@
       `;
     } else {
       let mpegtsPlayer = null;
+      let hideTimer = null;
+
+      function showControlsTemp() {
+        container.classList.remove('controls-hidden');
+        clearTimeout(hideTimer);
+        hideTimer = setTimeout(() => {
+          container.classList.add('controls-hidden');
+        }, 2000);
+      }
+
+      // Reset timer 2 detik setiap ada gerakan mouse, klik, sentuhan, atau tombol keyboard
+      ['mousemove', 'mousedown', 'touchstart', 'keydown'].forEach((evt) => {
+        window.addEventListener(evt, showControlsTemp, { passive: true });
+      });
 
       const dp = new DPlayer({
         container: container,
         live: isLive,
         autoplay: true,
-        theme: '#ff9600', // Warna khas Huya
+        theme: '#ff9600',
         video: {
           url: videoUrl,
           type: 'customFlv',
@@ -110,16 +135,19 @@
                   withCredentials: false
                 }, {
                   enableWorker: true,
-                  enableStashBuffer: false,
-                  stashInitialSize: 128, // Buffer awal kecil agar cepat muncul
-                  liveBufferLatencyChasing: true, // Kejar ketertinggalan delay live
-                  autoCleanupSourceBuffer: true // Bersihkan memori otomatis saat live lama
+                  enableStashBuffer: false,          // Matikan stash buffer bawaan agar tidak numpuk
+                  stashInitialSize: 64,              // Buffer awal sangat kecil (64 KB)
+                  liveBufferLatencyChasing: true,    // Aktif mengejar posisi live real-time
+                  liveBufferLatencyMaxLatency: 1.5,  // Batas toleransi delay maksimal 1.5 detik
+                  liveBufferLatencyMinRemain: 0.3,   // Target sisa buffer minimal
+                  autoCleanupSourceBuffer: true,     // Bersihkan buffer lama otomatis
+                  autoCleanupMaxBackwardDuration: 15,
+                  autoCleanupMinBackwardDuration: 5
                 });
 
                 mpegtsPlayer.attachMediaElement(video);
                 mpegtsPlayer.load();
 
-                // Tangani error jaringan / putus stream
                 mpegtsPlayer.on(mpegts.Events.ERROR, (errType, errDetail) => {
                   console.warn('Stream terputus/error:', errType, errDetail);
                 });
@@ -129,7 +157,9 @@
         }
       });
 
-      // Coba autoplay (browser modern kadang mewajibkan mute saat autoplay pertama kali)
+      // Mulai hitung mundur 2 detik sejak player siap
+      showControlsTemp();
+
       dp.on('canplay', function () {
         dp.play().catch(() => {
           dp.video.muted = true;
