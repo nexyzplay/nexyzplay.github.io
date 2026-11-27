@@ -3,34 +3,56 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Nexyz - mpegts.js</title>
+  <title>Nexyz - Jessibuca HTML5 Style</title>
   <style>
     html, body { margin: 0; height: 100%; background: #000; color: #fff; font-family: sans-serif; overflow: hidden; }
-    #wrap { width: 100%; aspect-ratio: 16 / 9; max-height: 100vh; background: #000; position: relative; overflow: hidden; margin: 0 auto; }
+    
+    /* Container Utama */
+    #wrap { width: 100%; height: 100%; background: #000; position: relative; overflow: hidden; }
     #container { width: 100%; height: 100%; }
-    #wrap:fullscreen { width: 100vw; height: 100vh; aspect-ratio: auto; max-height: none; margin: 0; }
-    #wrap:fullscreen #ctrlPanel { display: none !important; }
+
+    /* Fullscreen */
+    #wrap:fullscreen { width: 100vw; height: 100vh; }
+
+    /* Fallback rotate iPhone */
     #wrap.rotated {
-      position: fixed; top: 0; left: 0; width: 100vh; height: 100vw; aspect-ratio: auto; max-height: none;
+      position: fixed; top: 0; left: 0; width: 100vh; height: 100vw;
       transform-origin: top left; transform: translateX(100vw) rotate(90deg); z-index: 9999;
     }
-    #wrap.rotated #ctrlPanel { display: none !important; }
+
     #status { position: absolute; top: 20px; left: 20px; z-index: 100; font-size: 14px; color: #fff; text-shadow: 1px 1px 2px #000; pointer-events: none; }
+
+    /* ===== Panel Kontrol Gaya HTML5 ===== */
     #ctrlPanel {
       position: absolute; bottom: 0; left: 0; width: 100%; z-index: 50;
-      background: rgba(0,0,0,0.8); padding: 10px 15px; display: flex; flex-direction: column; gap: 8px;
-      box-sizing: border-box; opacity: 0; transition: opacity 0.2s;
+      background: linear-gradient(to top, rgba(0,0,0,0.8), transparent);
+      padding: 20px 15px 10px 15px;
+      display: flex; flex-direction: column; gap: 8px;
+      box-sizing: border-box;
+      opacity: 0; transition: opacity 0.3s;
     }
-    #wrap:hover #ctrlPanel, #wrap.showCtrl #ctrlPanel { opacity: 1; }
-    .progress-bar { width: 100%; height: 3px; background: rgba(255,255,255,0.2); border-radius: 2px; }
+    #wrap:hover #ctrlPanel,
+    #wrap.showCtrl #ctrlPanel { opacity: 1; }
+
+    .progress-bar { width: 100%; height: 4px; background: rgba(255,255,255,0.2); border-radius: 2px; position: relative; }
     .progress-bar-inner { height: 100%; width: 100%; background: #ff0000; border-radius: 2px; }
-    .controls-row { display: flex; justify-content: space-between; align-items: center; color: #fff; font-size: 13px; }
+
+    .controls-row { display: flex; justify-content: space-between; align-items: center; color: #fff; font-size: 14px; }
     .left-controls, .right-controls { display: flex; align-items: center; gap: 15px; }
-    .controls-row button { background: transparent; border: none; color: #fff; cursor: pointer; font-size: 16px; padding: 5px; display: flex; align-items: center; justify-content: center; }
+    
+    .controls-row button {
+      background: transparent; border: none; color: #fff; cursor: pointer;
+      font-size: 18px; padding: 5px; display: flex; align-items: center; justify-content: center;
+      transition: color 0.2s;
+    }
     .controls-row button:hover { color: #ccc; }
+
     .vol-wrap { display: flex; align-items: center; gap: 5px; }
-    .vol-wrap input[type=range] { width: 70px; accent-color: #fff; cursor: pointer; }
-    .time-display { font-family: monospace; font-size: 13px; }
+    .vol-wrap input[type=range] { width: 80px; accent-color: #fff; cursor: pointer; }
+    
+    .time-display { font-family: monospace; font-size: 14px; margin-left: 10px; }
+    .live-badge { font-size: 12px; opacity: 0.8; margin-left: 5px; color: #ff0000; font-weight: bold; }
+
     #exit { display: none; position: fixed; top: 10px; left: 10px; z-index: 10000; padding: 6px 10px; border: 0; border-radius: 6px; background: rgba(0,0,0,0.6); color: #fff; cursor: pointer; }
   </style>
 </head>
@@ -38,17 +60,22 @@
   <div id="wrap">
     <div id="container"></div>
     <div id="status"></div>
+
+    <!-- Panel Kontrol Mirip HTML5 -->
     <div id="ctrlPanel">
+      <!-- Progress Bar (Live) -->
       <div class="progress-bar"><div class="progress-bar-inner"></div></div>
+      
       <div class="controls-row">
         <div class="left-controls">
           <button id="cPlay" title="Play / Pause">▶</button>
           <span class="time-display" id="liveTime">0:00</span>
-          <span style="font-size: 11px; opacity: 0.7; margin-left: 5px;">LIVE</span>
+          <span class="live-badge">LIVE</span>
         </div>
+        
         <div class="right-controls">
           <div class="vol-wrap">
-            <button id="cMute" title="Mute">🔇</button>
+            <button id="cMute" title="Mute">🔊</button>
             <input id="cVol" type="range" min="0" max="100" value="80" title="Volume">
           </div>
           <button id="cFull" title="Fullscreen">⛶</button>
@@ -56,10 +83,11 @@
       </div>
     </div>
   </div>
+
   <button id="exit">✕ Keluar</button>
 
   <script src="https://cdn.jsdelivr.net/npm/nosleep.js@0.12.0/dist/NoSleep.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/mpegts.js@latest/dist/mpegts.min.js"></script>
+  <script src="jessibuca.js"></script>
   <script>
     const statusEl = document.getElementById('status');
     const wrap = document.getElementById('wrap');
@@ -70,8 +98,7 @@
 
     const params = new URLSearchParams(location.search);
     const target = params.get('url');
-    let player = null;
-    let videoEl = null;
+    let player;
     let audioUnlocked = false;
 
     // ===== Wake Lock =====
@@ -98,24 +125,40 @@
     ['click', 'touchend'].forEach(ev => document.addEventListener(ev, keepAwake, { passive: true }));
     keepAwake();
 
+    // ===== Refit =====
+    function refit() {
+      setTimeout(() => {
+        try { if (player && player.resize) player.resize(); } catch (e) {}
+        try { if (player && player.setScaleMode) player.setScaleMode(0); } catch (e) {}
+      }, 150);
+    }
+
     // ===== Rotated fallback =====
     function forceRotate(on) {
       wrap.classList.toggle('rotated', on);
       btnExit.style.display = on ? 'block' : 'none';
+      refit();
     }
 
     // ===== Fullscreen toggle =====
     async function toggleFullscreen() {
       keepAwake();
+      try { player && player.audioResume && player.audioResume(); } catch (e) {}
+
       if (document.fullscreenElement) {
         try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch (e) {}
         try { await document.exitFullscreen(); } catch (e) {}
+        refit();
         return;
       }
-      if (wrap.classList.contains('rotated')) { forceRotate(false); return; }
+      if (wrap.classList.contains('rotated')) {
+        forceRotate(false);
+        return;
+      }
       try {
         await wrap.requestFullscreen();
         if (screen.orientation && screen.orientation.lock) await screen.orientation.lock('landscape');
+        refit();
         return;
       } catch (e) { forceRotate(true); }
     }
@@ -125,6 +168,7 @@
       if (document.fullscreenElement) {
         try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch (e) {}
         try { await document.exitFullscreen(); } catch (e) {}
+        refit();
       }
     };
 
@@ -134,7 +178,9 @@
       if (!document.fullscreenElement && screen.orientation && screen.orientation.unlock) {
         try { screen.orientation.unlock(); } catch (e) {}
       }
+      refit();
     });
+    window.addEventListener('resize', refit);
 
     // ===== Tombol Kontrol =====
     const cPlay = document.getElementById('cPlay');
@@ -147,55 +193,68 @@
     let muted = false;
     let lastVol = 80;
 
-    // ===== AUDIO UNLOCK =====
+    // ===== Audio Unlock =====
     function unlockAudio() {
-      if (audioUnlocked || !videoEl) return;
+      if (audioUnlocked || !player) return;
       try {
-        videoEl.muted = false;
-        videoEl.volume = lastVol / 100;
+        player.cancelMute && player.cancelMute();
+        player.audioResume && player.audioResume();
+        player.setVolume && player.setVolume(lastVol / 100);
       } catch (e) {}
       audioUnlocked = true;
       cMute.textContent = '🔊';
     }
+
     wrap.addEventListener('click', unlockAudio);
     wrap.addEventListener('touchstart', unlockAudio, { passive: true });
 
     cPlay.onclick = () => {
-      if (!videoEl) return;
-      if (playing) {
-        videoEl.pause();
-        cPlay.textContent = '▶';
-        playing = false;
-      } else {
-        videoEl.play();
-        cPlay.textContent = '⏸';
-        playing = true;
-        unlockAudio();
-      }
+      try {
+        if (playing) {
+          player && player.pause && player.pause();
+          cPlay.textContent = '▶';
+          playing = false;
+        } else {
+          player && player.play && player.play();
+          cPlay.textContent = '⏸';
+          playing = true;
+          unlockAudio();
+        }
+      } catch (e) {}
     };
 
     cMute.onclick = () => {
-      if (!videoEl) return;
-      muted = !muted;
-      if (muted) {
-        lastVol = +cVol.value || 80;
-        cVol.value = 0;
-        videoEl.volume = 0;
-        cMute.textContent = '🔇';
-      } else {
-        cVol.value = lastVol;
-        videoEl.muted = false;
-        videoEl.volume = lastVol / 100;
-        cMute.textContent = '🔊';
-      }
+      try {
+        muted = !muted;
+        if (muted) {
+          lastVol = +cVol.value || 80;
+          cVol.value = 0;
+          player && player.setVolume && player.setVolume(0);
+          cMute.textContent = '🔇';
+        } else {
+          cVol.value = lastVol;
+          player && player.cancelMute && player.cancelMute();
+          player && player.audioResume && player.audioResume();
+          player && player.setVolume && player.setVolume(lastVol / 100);
+          cMute.textContent = '🔊';
+        }
+      } catch (e) {}
     };
 
     cVol.oninput = () => {
-      if (!videoEl) return;
-      const v = +cVol.value;
-      videoEl.volume = v / 100;
-      if (v > 0) { muted = false; cMute.textContent = '🔊'; }
-      else { muted = true; cMute.textContent = '🔇'; }
+      try {
+        const v = +cVol.value;
+        player && player.setVolume && player.setVolume(v / 100);
+        if (v > 0) {
+          muted = false;
+          cMute.textContent = '🔊';
+          player && player.cancelMute && player.cancelMute();
+          player && player.audioResume && player.audioResume();
+        } else {
+          muted = true;
+          cMute.textContent = '🔇';
+        }
+      } catch (e) {}
     };
 
     cFull.onclick = toggleFullscreen;
@@ -206,7 +265,7 @@
       wrap._ctrlTimer = setTimeout(() => wrap.classList.remove('showCtrl'), 3000);
     }, { passive: true });
 
-    // ===== mpegts.js Init =====
+    // ===== Player Jessibuca (Optimasi H.264) =====
     function pickUrl(j) {
       if (typeof j === 'string') return j;
       return j?.url || j?.flv || j?.data?.url || j?.data?.flv || null;
@@ -214,71 +273,40 @@
 
     function play(url) {
       show('');
-      if (player) {
-        try { player.destroy(); } catch (e) {}
-        player = null;
-      }
-      const container = document.getElementById('container');
-      container.innerHTML = '';
+      if (player) player.destroy();
 
-      if (!window.mpegts || !mpegts.getFeatureList().mseLivePlayback) {
-        show('Browser tidak mendukung FLV live via MSE');
-        return;
-      }
-
-      videoEl = document.createElement('video');
-      videoEl.style.width = '100%';
-      videoEl.style.height = '100%';
-      videoEl.style.objectFit = 'contain';
-      videoEl.setAttribute('playsinline', '');
-      videoEl.setAttribute('autoplay', '');
-      container.appendChild(videoEl);
-
-      player = mpegts.createPlayer({
-        type: 'flv',  // bisa coba 'mse' kalau ini stream TS
-        isLive: true,
-        url: url,
+      player = new Jessibuca({
+        container: document.getElementById('container'),
+        videoBuffer: 1,
+        isResize: true,
+        isFullResize: false,
+        useMSE: false,
+        useWCS: false,
+        forceNoOffscreen: true,
         hasAudio: true,
-        hasVideo: true
-      }, {
-        enableWorker: false,           // Coba matikan worker dulu (lebih stabil di beberapa browser)
-        enableStashBuffer: false,      // WAJIB false untuk live streaming
-        lazyLoad: false,
-        stashInitialSize: 128,
-        liveBufferLatencyChasing: true,
-        liveBufferLatencyMaxLatency: 5,   // Batasi latency maksimal 5 detik
-        liveBufferLatencyMinRemain: 0.5,  // Jangan biarkan buffer terlalu besar
-        autoCleanupSourceBuffer: true
+        isNotMute: false,
+        text: '',
+        loadingText: 'Memuat...',
+        showBandwidth: false,
+        operateBtns: { fullscreen: false, screenshot: false, play: false, audio: false }
       });
 
-      player.attachMediaElement(videoEl);
-      
-      player.on(mpegts.Events.ERROR, (type, detail, info) => {
-        show('Stream error: ' + (info?.msg || detail));
-      });
+      player.on('error', e => show('Stream error: ' + e));
 
-      player.on(mpegts.Events.MEDIA_INFO, (info) => {
-        show('');
+      player.on('start', () => {
+        refit();
+        keepAwake();
         playing = true;
         cPlay.textContent = '⏸';
-        keepAwake();
-        videoEl.volume = lastVol / 100;
-        
-        // Paksa play jika autoplay diblokir
-        videoEl.play().catch(() => {
-          cPlay.textContent = '▶';
-          playing = false;
-          show('Klik play untuk memulai');
-        });
+        try { player.setVolume && player.setVolume(lastVol / 100); } catch (e) {}
       });
 
-      player.load();
-      player.play();
+      player.play(url);
     }
 
     let secondsElapsed = 0;
     setInterval(() => {
-      if (playing && videoEl) {
+      if (playing && player) {
         secondsElapsed++;
         const m = Math.floor(secondsElapsed / 60).toString().padStart(2, '0');
         const s = (secondsElapsed % 60).toString().padStart(2, '0');
@@ -287,28 +315,27 @@
     }, 1000);
 
     async function start() {
+      if (!window.Jessibuca) return show('jessibuca.js tidak ditemukan');
       if (!target) return show('Pakai: ?url=ENDPOINT/?id=ROOM_ID');
+
       show('Loading...');
       const ctrl = new AbortController();
-      try {
-        const res = await fetch(target, { signal: ctrl.signal });
-        const type = res.headers.get('content-type') || '';
-        if (type.includes('json')) {
-          const j = await res.json();
-          if (j?.live === false) return show('Room offline / tidak ditemukan');
-          const flv = pickUrl(j);
-          if (!flv) return show('JSON tidak berisi link FLV: ' + JSON.stringify(j).slice(0, 150));
-          play(flv);
-        } else if (type.includes('text/')) {
-          const t = (await res.text()).trim();
-          if (/^https?:\/\//.test(t)) play(t);
-          else show('Respons tidak dikenali: ' + t.slice(0, 150));
-        } else {
-          ctrl.abort();
-          play(target);
-        }
-      } catch (e) {
-        show('Fetch error: ' + e.message);
+      const res = await fetch(target, { signal: ctrl.signal });
+      const type = res.headers.get('content-type') || '';
+
+      if (type.includes('json')) {
+        const j = await res.json();
+        if (j?.live === false) return show('Room offline / tidak ditemukan');
+        const flv = pickUrl(j);
+        if (!flv) return show('JSON tidak berisi link FLV: ' + JSON.stringify(j).slice(0, 150));
+        play(flv);
+      } else if (type.includes('text/')) {
+        const t = (await res.text()).trim();
+        if (/^https?:\/\//.test(t)) play(t);
+        else show('Respons tidak dikenali: ' + t.slice(0, 150));
+      } else {
+        ctrl.abort();
+        play(target);
       }
     }
     start();
