@@ -111,7 +111,6 @@
         }, 2000);
       }
 
-      // Reset timer 2 detik setiap ada gerakan mouse, klik, sentuhan, atau tombol keyboard
       ['mousemove', 'mousedown', 'touchstart', 'keydown'].forEach((evt) => {
         window.addEventListener(evt, showControlsTemp, { passive: true });
       });
@@ -135,14 +134,14 @@
                   withCredentials: false
                 }, {
                   enableWorker: true,
-                  enableStashBuffer: false,          // Matikan stash buffer bawaan agar tidak numpuk
-                  stashInitialSize: 64,              // Buffer awal sangat kecil (64 KB)
-                  liveBufferLatencyChasing: true,    // Aktif mengejar posisi live real-time
-                  liveBufferLatencyMaxLatency: 1.5,  // Batas toleransi delay maksimal 1.5 detik
-                  liveBufferLatencyMinRemain: 0.3,   // Target sisa buffer minimal
+                  enableStashBuffer: true,           // Aktifkan stash buffer agar ada cadangan frame
+                  stashInitialSize: 256,             // Cadangan awal 256 KB
+                  liveBufferLatencyChasing: true,    // Tetap jaga delay agar tidak molor terlalu jauh
+                  liveBufferLatencyMaxLatency: 4.5,  // Batas maksimal delay sebelum dipercepat halus
+                  liveBufferLatencyMinRemain: 3.0,   // Target cadangan buffer ~3 detik
                   autoCleanupSourceBuffer: true,     // Bersihkan buffer lama otomatis
-                  autoCleanupMaxBackwardDuration: 15,
-                  autoCleanupMinBackwardDuration: 5
+                  autoCleanupMaxBackwardDuration: 20,
+                  autoCleanupMinBackwardDuration: 10
                 });
 
                 mpegtsPlayer.attachMediaElement(video);
@@ -157,7 +156,6 @@
         }
       });
 
-      // Mulai hitung mundur 2 detik sejak player siap
       showControlsTemp();
 
       dp.on('canplay', function () {
