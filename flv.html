@@ -48,59 +48,93 @@
 
   <div id="dplayer"></div>
 
-  <!-- Load Engine FLV & DPlayer -->
-  <script src="https://cdn.jsdelivr.net/npm/flv.js@latest/dist/flv.min.js"></script>
+  <!-- Gunakan mpegts.js sebagai pengganti flv.js agar lebih stabil menangani redirect & live stream Huya -->
+  <script src="https://cdn.jsdelivr.net/npm/mpegts.js@latest/dist/mpegts.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/dplayer@latest/dist/DPlayer.min.js"></script>
 
   <script>
-    // 1. Ambil parameter dari URL browser
+    // Ambil raw parameter 'url' agar jika ada parameter tambahan di dalam link tidak terpotong
+    function getTargetUrl() {
+      const search = window.location.search;
+      const match = search.match(/[?&]url=([^&]+(?:&.*)?)/);
+      if (!match) return null;
+      
+      let rawUrl = match[1];
+      // Pisahkan jika ada parameter khusus player di akhir seperti &live=false
+      rawUrl = rawUrl.replace(/&live=(true|false)/g, '');
+      
+      try {
+        return decodeURIComponent(rawUrl);
+      } catch (e) {
+        return rawUrl;
+      }
+    }
+
     const urlParams = new URLSearchParams(window.location.search);
-    const videoUrl = urlParams.get('url');
-    // Opsional: bisa tambah &live=true di URL jika untuk live stream
-    const isLive = urlParams.get('live') === 'true'; 
+    const videoUrl = getTargetUrl();
+    // Default true untuk live stream (Huya), kecuali ditulis &live=false
+    const isLive = urlParams.get('live') !== 'false'; 
 
     const container = document.getElementById('dplayer');
 
     if (!videoUrl) {
-      // Tampilkan pesan panduan jika parameter ?url= kosong
       container.style.display = 'flex';
       container.style.justifyContent = 'center';
       container.style.alignItems = 'center';
       container.innerHTML = `
         <div class="error-box">
-          <h3>URL Video Tidak Ditemukan</h3>
-          <p style="margin-top:8px; color:#aaa; font-size:14px;">Gunakan format parameter berikut pada alamat browser:</p>
-          <code>flv.html?url=https://domain.com/video.flv</code>
+          <h3>URL Stream Tidak Ditemukan</h3>
+          <p style="margin-top:8px; color:#aaa; font-size:14px;">Contoh penggunaan:</p>
+          <code>flv.html?url=https://xcdn-hy.vercel.app/?id=30805929</code>
         </div>
       `;
     } else {
-      // 2. Inisialisasi DPlayer jika parameter ?url= ada
+      let mpegtsPlayer = null;
+
       const dp = new DPlayer({
         container: container,
         live: isLive,
         autoplay: true,
-        theme: '#00a1d6',
+        theme: '#ff9600', // Warna khas Huya
         video: {
           url: videoUrl,
-          type: 'flv',
-        },
-        pluginOptions: {
-          flv: {
-            mediaDataSource: {
-              isLive: isLive,
-              cors: true,
-              withCredentials: false,
-            },
-            config: {
-              enableWorker: true,
-              enableStashBuffer: false,
-            },
-          },
-        },
+          type: 'customFlv',
+          customType: {
+            customFlv: function (video, player) {
+              if (mpegts.getFeatureList().mseLivePlayback) {
+                mpegtsPlayer = mpegts.createPlayer({
+                  type: 'flv',
+                  isLive: isLive,
+                  url: video.src,
+                  cors: true,
+                  withCredentials: false
+                }, {
+                  enableWorker: true,
+                  enableStashBuffer: false,
+                  stashInitialSize: 128, // Buffer awal kecil agar cepat muncul
+                  liveBufferLatencyChasing: true, // Kejar ketertinggalan delay live
+                  autoCleanupSourceBuffer: true // Bersihkan memori otomatis saat live lama
+                });
+
+                mpegtsPlayer.attachMediaElement(video);
+                mpegtsPlayer.load();
+
+                // Tangani error jaringan / putus stream
+                mpegtsPlayer.on(mpegts.Events.ERROR, (errType, errDetail) => {
+                  console.warn('Stream terputus/error:', errType, errDetail);
+                });
+              }
+            }
+          }
+        }
       });
 
-      dp.on('error', function () {
-        console.error('Gagal memutar stream/video FLV:', videoUrl);
+      // Coba autoplay (browser modern kadang mewajibkan mute saat autoplay pertama kali)
+      dp.on('canplay', function () {
+        dp.play().catch(() => {
+          dp.video.muted = true;
+          dp.play();
+        });
       });
     }
   </script>
