@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="referrer" content="no-referrer">
-  <title>DPlayer FLV Live Player</title>
+  <title>Nexyz</title>
   <style>
     * {
       box-sizing: border-box;
@@ -64,7 +64,8 @@
 
   <div id="dplayer"></div>
 
-  <script src="https://cdn.jsdelivr.net/npm/mpegts.js@latest/dist/mpegts.min.js"></script>
+  <!-- Load mpegts.js v1.7.3 & DPlayer -->
+  <script src="https://live.kltratv.site/vendor/mpegts-1.7.3.js?v=20261118T063723525Z-aef60c6ae959"></script>
   <script src="https://cdn.jsdelivr.net/npm/dplayer@latest/dist/DPlayer.min.js"></script>
 
   <script>
@@ -125,7 +126,7 @@
           type: 'customFlv',
           customType: {
             customFlv: function (video, player) {
-              if (mpegts.getFeatureList().mseLivePlayback) {
+              if (typeof mpegts !== 'undefined' && mpegts.getFeatureList().mseLivePlayback) {
                 mpegtsPlayer = mpegts.createPlayer({
                   type: 'flv',
                   isLive: isLive,
@@ -134,22 +135,20 @@
                   withCredentials: false
                 }, {
                   enableWorker: true,
-                  enableStashBuffer: true,           // Aktifkan stash buffer agar ada cadangan frame
-                  stashInitialSize: 256,             // Cadangan awal 256 KB
-                  liveBufferLatencyChasing: true,    // Tetap jaga delay agar tidak molor terlalu jauh
-                  liveBufferLatencyMaxLatency: 4.5,  // Batas maksimal delay sebelum dipercepat halus
-                  liveBufferLatencyMinRemain: 3.0,   // Target cadangan buffer ~3 detik
-                  autoCleanupSourceBuffer: true,     // Bersihkan buffer lama otomatis
-                  autoCleanupMaxBackwardDuration: 20,
-                  autoCleanupMinBackwardDuration: 10
+                  enableStashBuffer: true,
+                  stashInitialSize: 1024,          // Bantalan awal 1 MB (~3 detik tergantung bitrate)
+                  liveBufferLatencyChasing: false, // Hindari jeda/lompatan akibat kejar latency
+                  autoCleanupSourceBuffer: false   // Hindari jeda pembersihan buffer saat live
                 });
 
                 mpegtsPlayer.attachMediaElement(video);
                 mpegtsPlayer.load();
 
                 mpegtsPlayer.on(mpegts.Events.ERROR, (errType, errDetail) => {
-                  console.warn('Stream terputus/error:', errType, errDetail);
+                  console.warn('mpegts error:', errType, errDetail);
                 });
+              } else {
+                console.error('mpegts.js tidak termuat atau browser tidak mendukung MSE.');
               }
             }
           }
