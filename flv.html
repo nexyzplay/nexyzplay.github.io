@@ -50,9 +50,147 @@
       .catch(function () { return u; });
   }
 
-  function start(url) {
+  function isHuya(u) {
+    try {
+      var h = new URL(u, location.href).hostname;
+      return h === "huya.com" || h.endsWith(".huya.com") || h === "xcdn-hy.vercel.app";
+    } catch (e) { return false; }
+  }
+
+  // Stream Huya membawa NAL SEI (metadata) yang membuat decoder MSE di banyak browser
+  // tersendat. Loader ini membuang SEI saja; gambar, suara, dan timestamp tetap utuh.
+  function createHuyaFlvLoader(lib) {
+    return class extends lib.BaseLoader {
+      constructor() {
+        super("huya-flv-loader");
+        this._needStash = true;
+        this.pending = new Uint8Array(0);
+        this.headerDone = false;
+        this.nalSize = 4;
+        this.received = 0;
+        this.controller = null;
+      }
+
+      filterTag(tag) {
+        if (tag[0] !== 9 || tag.length < 20 || (tag[11] & 15) !== 7) return tag;
+        if (tag[12] === 0 && tag.length >= 25) {
+          this.nalSize = (tag[20] & 3) + 1;
+          return tag;
+        }
+        if (tag[12] !== 1) return tag;
+
+        const end = tag.length - 4;
+        const units = [];
+        let removed = 0;
+        for (let pos = 16; pos < end;) {
+          const start = pos;
+          if (pos + this.nalSize > end) throw new Error("Invalid Huya AVC NAL length");
+          let size = 0;
+          for (let i = 0; i < this.nalSize; i++) size = size * 256 + tag[pos++];
+          if (!size || pos + size > end) throw new Error("Invalid Huya AVC NAL data");
+          if ((tag[pos] & 31) === 6) removed += this.nalSize + size;
+          else units.push(tag.subarray(start, pos + size));
+          pos += size;
+        }
+        if (!removed) return tag;
+
+        const output = new Uint8Array(tag.length - removed);
+        output.set(tag.subarray(0, 16));
+        const dataSize = output.length - 15;
+        output[1] = dataSize >>> 16;
+        output[2] = dataSize >>> 8;
+        output[3] = dataSize;
+        let offset = 16;
+        units.forEach(function (unit) { output.set(unit, offset); offset += unit.length; });
+        new DataView(output.buffer).setUint32(output.length - 4, output.length - 4);
+        return output;
+      }
+
+      filterChunk(chunk) {
+        const data = new Uint8Array(this.pending.length + chunk.length);
+        data.set(this.pending);
+        data.set(chunk, this.pending.length);
+        const parts = [];
+        let pos = 0;
+        if (!this.headerDone) {
+          if (data.length < 9) { this.pending = data; return new Uint8Array(0); }
+          const headerSize = new DataView(data.buffer).getUint32(5);
+          if (data[0] !== 70 || data[1] !== 76 || data[2] !== 86 || headerSize < 9 || headerSize > 1048576)
+            throw new Error("Invalid Huya FLV header");
+          if (data.length < headerSize + 4) { this.pending = data; return new Uint8Array(0); }
+          pos = headerSize + 4;
+          parts.push(data.subarray(0, pos));
+          this.headerDone = true;
+        }
+        while (pos + 11 <= data.length) {
+          const size = data[pos + 1] * 65536 + data[pos + 2] * 256 + data[pos + 3] + 15;
+          if (pos + size > data.length) break;
+          parts.push(this.filterTag(data.subarray(pos, pos + size)));
+          pos += size;
+        }
+        this.pending = data.slice(pos);
+        const output = new Uint8Array(parts.reduce(function (sum, part) { return sum + part.length; }, 0));
+        let offset = 0;
+        parts.forEach(function (part) { output.set(part, offset); offset += part.length; });
+        return output;
+      }
+
+      async open(source, range) {
+        const controller = this.controller = new AbortController();
+        this._status = lib.LoaderStatus.kConnecting;
+        try {
+          if (range.from !== 0) throw new Error("Huya live stream must start from its FLV header");
+          const response = await fetch(source.url, {
+            signal: controller.signal,
+            mode: source.cors === false ? "same-origin" : "cors",
+            credentials: source.withCredentials ? "include" : "same-origin",
+            referrerPolicy: source.referrerPolicy || "no-referrer-when-downgrade"
+          });
+          if (!response.ok) throw Object.assign(new Error("HTTP " + response.status), { status: response.status });
+          const reader = response.body.getReader();
+          this._status = lib.LoaderStatus.kBuffering;
+          while (!controller.signal.aborted) {
+            const result = await reader.read();
+            if (controller.signal.aborted) return;
+            if (result.done) {
+              if (this.pending.length || !this.headerDone) throw new Error("Incomplete Huya FLV stream");
+              this._status = lib.LoaderStatus.kComplete;
+              if (this._onComplete) this._onComplete(0, this.received - 1);
+              return;
+            }
+            const data = this.filterChunk(result.value);
+            const start = this.received;
+            this.received += data.length;
+            if (data.length && this._onDataArrival) this._onDataArrival(data.buffer, start, this.received);
+          }
+        } catch (err) {
+          if (controller.signal.aborted) return;
+          controller.abort();
+          this._status = lib.LoaderStatus.kError;
+          if (this._onError)
+            this._onError(err.status ? lib.LoaderErrors.HTTP_STATUS_CODE_INVALID : lib.LoaderErrors.EXCEPTION,
+              { code: err.status || -1, msg: err.message });
+        }
+      }
+
+      abort() {
+        if (this.controller) this.controller.abort();
+        this.pending = new Uint8Array(0);
+        this._status = lib.LoaderStatus.kIdle;
+      }
+
+      destroy() {
+        this.abort();
+        super.destroy();
+      }
+    };
+  }
+
+  function start(u) {
     var video = document.getElementById("v");
-    var p = mpegts.createPlayer({ type: "flv", isLive: true, url: url });
+    var config = {};
+    if (isHuya(u) || isHuya(url)) config.customLoader = createHuyaFlvLoader(mpegts);
+    var p = mpegts.createPlayer({ type: "flv", isLive: true, url: u }, config);
     p.on(mpegts.Events.ERROR, function (t, d) { msg.textContent = "Gagal memutar: " + d; });
     p.attachMediaElement(video);
     p.load();
