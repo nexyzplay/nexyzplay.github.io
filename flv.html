@@ -1,170 +1,89 @@
 <!DOCTYPE html>
-<html lang="id">
+<html>
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="referrer" content="no-referrer">
-  <title>Nexyz</title>
+  <meta charset="utf-8">
+  <script
+    src="https://code.jquery.com/jquery-3.2.1.min.js"
+    integrity="sha256-hwg4gsxgFZhOsEEamdOYGBf13FyQuiTwlAQgxVSNgt4="
+    crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+  <script src="mousetrap.min.js" charset="utf-8"></script>
   <style>
-    * {
-      box-sizing: border-box;
+    html, body {
       margin: 0;
       padding: 0;
-    }
-    body {
-      background-color: #000;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      width: 100vw;
-      height: 100vh;
-      overflow: hidden;
-      font-family: sans-serif;
+      width: 100%;
+      height: 100%;
+      background-color: black;
       color: #fff;
+      font-family: sans-serif;
+      overflow: hidden;
     }
-    #dplayer {
+    #single-view, #multi-view-frame {
+      position: relative;
       width: 100%;
       height: 100%;
     }
-    /* Sembunyikan kontrol & kursor saat idle (2 detik) */
-    #dplayer.controls-hidden .dplayer-controller,
-    #dplayer.controls-hidden .dplayer-controller-mask {
-      opacity: 0 !important;
-      visibility: hidden !important;
-      pointer-events: none !important;
-      transition: opacity 0.25s ease, visibility 0.25s ease;
+    #video-placeholder {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      opacity: 0.3;
     }
-    #dplayer.controls-hidden {
-      cursor: none;
+    #video {
+      position: absolute;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      margin: auto;
+      max-height: 100%;
+      max-width: 100%;
+      width: 100%;
+      height: 100%;
     }
-    .dplayer-controller,
-    .dplayer-controller-mask {
-      transition: opacity 0.2s ease, visibility 0.2s ease;
+    [data-player-mount] {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
     }
-    .error-box {
-      text-align: center;
-      padding: 20px;
-      background: #1a1a1a;
-      border-radius: 8px;
-      border: 1px solid #333;
-      max-width: 90%;
+    [data-player-mount]:not(:empty) {
+      pointer-events: auto;
     }
-    .error-box code {
-      display: block;
-      margin-top: 10px;
-      padding: 8px;
-      background: #000;
-      color: #00ff88;
-      border-radius: 4px;
-      word-break: break-all;
+    #countdown {
+      display: none;
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.8);
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 6px;
+    }
+    #multi-view-frame {
+      display: none;
+      border: 0;
     }
   </style>
+  <title>M3U8 Player running...</title>
 </head>
 <body>
+  <div id="single-view">
+    <img id="video-placeholder" src="/images/index.png" alt="">
+    <video id="video" controls=""></video>
+    <div data-player-mount=""></div>
+    <div id="countdown">
+      <div class="countdown-title">Event will start in:</div>
+      <div class="countdown-timer"></div>
+    </div>
+  </div>
 
-  <div id="dplayer"></div>
+  <iframe id="multi-view-frame" allowfullscreen></iframe>
 
-  <!-- Load mpegts.js v1.7.3 & DPlayer -->
-  <script src="https://live.kltratv.site/vendor/mpegts-1.7.3.js?v=20261118T063723525Z-aef60c6ae959"></script>
-  <script src="https://cdn.jsdelivr.net/npm/dplayer@latest/dist/DPlayer.min.js"></script>
-
-  <script>
-    function getTargetUrl() {
-      const search = window.location.search;
-      const match = search.match(/[?&]url=([^&]+(?:&.*)?)/);
-      if (!match) return null;
-
-      let rawUrl = match[1];
-      rawUrl = rawUrl.replace(/&live=(true|false)/g, '');
-
-      try {
-        return decodeURIComponent(rawUrl);
-      } catch (e) {
-        return rawUrl;
-      }
-    }
-
-    const urlParams = new URLSearchParams(window.location.search);
-    const videoUrl = getTargetUrl();
-    const isLive = urlParams.get('live') !== 'false';
-    const container = document.getElementById('dplayer');
-
-    if (!videoUrl) {
-      container.style.display = 'flex';
-      container.style.justifyContent = 'center';
-      container.style.alignItems = 'center';
-      container.innerHTML = `
-        <div class="error-box">
-          <h3>URL Stream Tidak Ditemukan</h3>
-          <p style="margin-top:8px; color:#aaa; font-size:14px;">Contoh penggunaan:</p>
-          <code>flv.html?url=https://xcdn-hy.vercel.app/?id=30805929</code>
-        </div>
-      `;
-    } else {
-      let mpegtsPlayer = null;
-      let hideTimer = null;
-
-      function showControlsTemp() {
-        container.classList.remove('controls-hidden');
-        clearTimeout(hideTimer);
-        hideTimer = setTimeout(() => {
-          container.classList.add('controls-hidden');
-        }, 2000);
-      }
-
-      ['mousemove', 'mousedown', 'touchstart', 'keydown'].forEach((evt) => {
-        window.addEventListener(evt, showControlsTemp, { passive: true });
-      });
-
-      const dp = new DPlayer({
-        container: container,
-        live: isLive,
-        autoplay: true,
-        theme: '#ff9600',
-        video: {
-          url: videoUrl,
-          type: 'customFlv',
-          customType: {
-            customFlv: function (video, player) {
-              if (typeof mpegts !== 'undefined' && mpegts.getFeatureList().mseLivePlayback) {
-                mpegtsPlayer = mpegts.createPlayer({
-                  type: 'flv',
-                  isLive: isLive,
-                  url: video.src,
-                  cors: true,
-                  withCredentials: false
-                }, {
-                  enableWorker: true,
-                  enableStashBuffer: true,
-                  stashInitialSize: 1024,          // Bantalan awal 1 MB (~3 detik tergantung bitrate)
-                  liveBufferLatencyChasing: false, // Hindari jeda/lompatan akibat kejar latency
-                  autoCleanupSourceBuffer: false   // Hindari jeda pembersihan buffer saat live
-                });
-
-                mpegtsPlayer.attachMediaElement(video);
-                mpegtsPlayer.load();
-
-                mpegtsPlayer.on(mpegts.Events.ERROR, (errType, errDetail) => {
-                  console.warn('mpegts error:', errType, errDetail);
-                });
-              } else {
-                console.error('mpegts.js tidak termuat atau browser tidak mendukung MSE.');
-              }
-            }
-          }
-        }
-      });
-
-      showControlsTemp();
-
-      dp.on('canplay', function () {
-        dp.play().catch(() => {
-          dp.video.muted = true;
-          dp.play();
-        });
-      });
-    }
-  </script>
-
+  <script src="player.js"></script>
 </body>
 </html>
