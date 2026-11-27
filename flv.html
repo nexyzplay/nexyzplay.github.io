@@ -74,7 +74,7 @@
     let videoEl = null;
     let audioUnlocked = false;
 
-    // ===== Cegah layar redup / mati =====
+    // ===== Wake Lock =====
     let wakeLock = null;
     const noSleep = window.NoSleep ? new NoSleep() : null;
     let noSleepOn = false;
@@ -97,16 +97,6 @@
     document.addEventListener('fullscreenchange', keepAwake);
     ['click', 'touchend'].forEach(ev => document.addEventListener(ev, keepAwake, { passive: true }));
     keepAwake();
-
-    // ===== Refit =====
-    function refit() {
-      setTimeout(() => {
-        if (videoEl) {
-          // mpegts.js menggunakan elemen video langsung, tidak perlu resize manual
-          // tapi kita pastikan video mengisi container
-        }
-      }, 150);
-    }
 
     // ===== Rotated fallback =====
     function forceRotate(on) {
@@ -241,31 +231,45 @@
       videoEl.style.height = '100%';
       videoEl.style.objectFit = 'contain';
       videoEl.setAttribute('playsinline', '');
+      videoEl.setAttribute('autoplay', '');
       container.appendChild(videoEl);
 
       player = mpegts.createPlayer({
-        type: 'flv',
+        type: 'flv',  // bisa coba 'mse' kalau ini stream TS
         isLive: true,
-        url: url
+        url: url,
+        hasAudio: true,
+        hasVideo: true
       }, {
-        enableWorker: true,
+        enableWorker: false,           // Coba matikan worker dulu (lebih stabil di beberapa browser)
+        enableStashBuffer: false,      // WAJIB false untuk live streaming
         lazyLoad: false,
+        stashInitialSize: 128,
         liveBufferLatencyChasing: true,
-        liveBufferLatencyMaxLatency: 10,
-        liveBufferLatencyMinRemain: 2
+        liveBufferLatencyMaxLatency: 5,   // Batasi latency maksimal 5 detik
+        liveBufferLatencyMinRemain: 0.5,  // Jangan biarkan buffer terlalu besar
+        autoCleanupSourceBuffer: true
       });
 
       player.attachMediaElement(videoEl);
-
+      
       player.on(mpegts.Events.ERROR, (type, detail, info) => {
         show('Stream error: ' + (info?.msg || detail));
       });
 
-      player.on(mpegts.Events.MEDIA_INFO, () => {
+      player.on(mpegts.Events.MEDIA_INFO, (info) => {
+        show('');
         playing = true;
         cPlay.textContent = '⏸';
         keepAwake();
         videoEl.volume = lastVol / 100;
+        
+        // Paksa play jika autoplay diblokir
+        videoEl.play().catch(() => {
+          cPlay.textContent = '▶';
+          playing = false;
+          show('Klik play untuk memulai');
+        });
       });
 
       player.load();
