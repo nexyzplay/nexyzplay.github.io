@@ -6,13 +6,14 @@
   <title>Nexyz</title>
   <style>
     html, body { margin: 0; height: 100%; background: #000; color: #fff; font-family: sans-serif; overflow: hidden; }
-    
-    /* Container Utama */
     #wrap { width: 100%; height: 100%; background: #000; position: relative; overflow: hidden; }
     #container { width: 100%; height: 100%; }
 
-    /* Fullscreen */
+    /* Fullscreen asli */
     #wrap:fullscreen { width: 100%; height: 100%; }
+
+    /* Saat fullscreen: sembunyikan panel kontrol */
+    #wrap:fullscreen #ctrlPanel { display: none !important; }
 
     /* Putar paksa (fallback iPhone) */
     #wrap.rotated {
@@ -22,6 +23,7 @@
       transform: translateX(100vw) rotate(90deg);
       z-index: 9999;
     }
+    #wrap.rotated #ctrlPanel { display: none !important; }
 
     /* Status / Error */
     #status {
@@ -30,10 +32,10 @@
       pointer-events: none;
     }
 
-    /* ===== Panel Kontrol (Optimasi Ringan) ===== */
+    /* ===== Panel Kontrol ===== */
     #ctrlPanel {
       position: absolute; bottom: 0; left: 0; width: 100%; z-index: 50;
-      background: rgba(0,0,0,0.8); /* Mengganti gradient dengan warna solid agar ringan */
+      background: rgba(0,0,0,0.8);
       padding: 10px 15px;
       display: flex; flex-direction: column; gap: 8px;
       box-sizing: border-box;
@@ -42,17 +44,15 @@
     #wrap:hover #ctrlPanel,
     #wrap.showCtrl #ctrlPanel { opacity: 1; }
 
-    /* Progress Bar (Live stream = statis, tanpa animasi) */
     .progress-bar {
       width: 100%; height: 3px; background: rgba(255,255,255,0.2);
       border-radius: 2px;
     }
     .progress-bar-inner {
-      height: 100%; width: 100%; background: #ff0000; /* Merah statis */
+      height: 100%; width: 100%; background: #ff0000;
       border-radius: 2px;
     }
 
-    /* Baris tombol & teks */
     .controls-row {
       display: flex; justify-content: space-between; align-items: center;
       color: #fff; font-size: 13px;
@@ -60,8 +60,6 @@
     .left-controls, .right-controls {
       display: flex; align-items: center; gap: 15px;
     }
-    
-    /* Ikon & Tombol */
     .controls-row button {
       background: transparent; border: none; color: #fff; cursor: pointer;
       font-size: 16px; padding: 5px; display: flex; align-items: center;
@@ -69,16 +67,10 @@
     }
     .controls-row button:hover { color: #ccc; }
 
-    /* Volume slider */
     .vol-wrap { display: flex; align-items: center; gap: 5px; }
-    .vol-wrap input[type=range] {
-      width: 70px; accent-color: #fff; cursor: pointer;
-    }
-
-    /* Time display */
+    .vol-wrap input[type=range] { width: 70px; accent-color: #fff; cursor: pointer; }
     .time-display { font-family: monospace; font-size: 13px; }
 
-    /* Tombol Exit */
     #exit {
       display: none; position: fixed; top: 10px; left: 10px; z-index: 10000;
       padding: 6px 10px; border: 0; border-radius: 6px; background: rgba(0,0,0,0.6); color: #fff; cursor: pointer;
@@ -90,19 +82,16 @@
     <div id="container"></div>
     <div id="status"></div>
 
-    <!-- Panel Kontrol -->
     <div id="ctrlPanel">
       <div class="progress-bar">
         <div class="progress-bar-inner"></div>
       </div>
-      
       <div class="controls-row">
         <div class="left-controls">
           <button id="cPlay" title="Play / Pause">▶</button>
           <span class="time-display" id="liveTime">0:00</span>
           <span style="font-size: 11px; opacity: 0.7; margin-left: 5px;">LIVE</span>
         </div>
-        
         <div class="right-controls">
           <div class="vol-wrap">
             <button id="cMute" title="Mute">🔇</button>
@@ -156,7 +145,7 @@
     ['click', 'touchend'].forEach(ev => document.addEventListener(ev, keepAwake, { passive: true }));
     keepAwake();
 
-    // ===== Landscape =====
+    // ===== Refit / Resize =====
     function refit() {
       setTimeout(() => {
         try { player && player.resize && player.resize(); } catch (e) {}
@@ -164,15 +153,35 @@
       }, 150);
     }
 
+    // ===== Rotated fallback (iPhone) =====
     function forceRotate(on) {
       wrap.classList.toggle('rotated', on);
       btnExit.style.display = on ? 'block' : 'none';
       refit();
     }
 
-    async function goLandscape() {
+    // ===== Fullscreen toggle =====
+    async function toggleFullscreen() {
       keepAwake();
       try { player && player.audioResume && player.audioResume(); } catch (e) {}
+
+      // Jika sedang fullscreen -> keluar
+      if (document.fullscreenElement) {
+        try {
+          if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock();
+        } catch (e) {}
+        try { await document.exitFullscreen(); } catch (e) {}
+        refit();
+        return;
+      }
+
+      // Jika sedang rotated fallback -> matikan
+      if (wrap.classList.contains('rotated')) {
+        forceRotate(false);
+        return;
+      }
+
+      // Coba masuk fullscreen
       try {
         await wrap.requestFullscreen();
         if (screen.orientation && screen.orientation.lock) {
@@ -180,15 +189,36 @@
         }
         refit();
         return;
-      } catch (e) {}
-      forceRotate(true);
+      } catch (e) {
+        // Fallback rotate CSS
+        forceRotate(true);
+      }
     }
 
-    btnExit.onclick = () => forceRotate(false);
+    // Tombol ✕ Keluar: keluar dari rotated atau fullscreen
+    btnExit.onclick = async () => {
+      if (wrap.classList.contains('rotated')) {
+        forceRotate(false);
+        return;
+      }
+      if (document.fullscreenElement) {
+        try {
+          if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock();
+        } catch (e) {}
+        try { await document.exitFullscreen(); } catch (e) {}
+        refit();
+        return;
+      }
+    };
 
+    // Update tombol exit saat fullscreen berubah
     document.addEventListener('fullscreenchange', () => {
+      // Tampilkan tombol exit saat fullscreen / rotated
+      const isFs = !!document.fullscreenElement || wrap.classList.contains('rotated');
+      btnExit.style.display = isFs ? 'block' : 'none';
+
       if (!document.fullscreenElement && screen.orientation && screen.orientation.unlock) {
-        screen.orientation.unlock();
+        try { screen.orientation.unlock(); } catch (e) {}
       }
       refit();
     });
@@ -237,7 +267,8 @@
       } catch (e) {}
     };
 
-    cFull.onclick = goLandscape;
+    // Fullscreen toggle (masuk / keluar)
+    cFull.onclick = toggleFullscreen;
 
     wrap.addEventListener('touchstart', () => {
       wrap.classList.add('showCtrl');
@@ -245,7 +276,7 @@
       wrap._ctrlTimer = setTimeout(() => wrap.classList.remove('showCtrl'), 3000);
     }, { passive: true });
 
-    // ===== Player Jessibuca (OPTIMASI PERFORMA) =====
+    // ===== Player Jessibuca =====
     function pickUrl(j) {
       if (typeof j === 'string') return j;
       return j?.url || j?.flv || j?.data?.url || j?.data?.flv || null;
@@ -257,23 +288,16 @@
       
       player = new Jessibuca({
         container: document.getElementById('container'),
-        
-        // --- OPTIMASI PERFORMA EKSTREM ---
-        videoBuffer: 5,          // Naikkan buffer (dari 1 ke 5) agar tidak sering buffering
+        videoBuffer: 5,
         isResize: true,
-        isFullResize: false,     // Jangan paksa full screen render
-        useMSE: true,            // Gunakan MSE (biasanya lebih ringan dari WebGL murni)
-        useWCS: false,           // Matikan WebCodecs (kadang berat di beberapa device)
-        forceNoOffscreen: false, // Biarkan browser pakai OffscreenCanvas (lebih ringan)
+        isFullResize: false,
+        useMSE: true,
+        useWCS: false,
+        forceNoOffscreen: false,
         isNotMute: false,
         showBandwidth: false,
         text: '',
         loadingText: 'Memuat...',
-        
-        // Batasi resolusi maksimal (opsional, ringan untuk HP)
-        // Jika video asli 1080p, ini akan memaksa render lebih kecil
-        // Namun Jessibuca secara default sudah menyesuaikan
-        
         operateBtns: { fullscreen: false, screenshot: false, play: false, audio: false }
       });
 
