@@ -85,7 +85,7 @@
         overlayMsg.style.display = 'none';
     }
 
-    // Ambil parameter wajib ?url=... (mendukung juga jika URL tidak di-encode)
+    // Ambil parameter wajib ?url=... (mendukung URL dengan '?' atau '&' di dalamnya)
     function getStreamUrlFromQuery() {
         const rawSearch = window.location.search;
         if (!rawSearch) return null;
@@ -94,7 +94,6 @@
         const paramUrl = urlParams.get('url');
         if (!paramUrl) return null;
 
-        // Jika link di dalam ?url= mengandung '&' tanpa di-encode, ambil seluruh sisa string setelah 'url='
         const match = rawSearch.match(/[?&]url=(.+)$/);
         if (match && match[1]) {
             try {
@@ -106,7 +105,7 @@
         return paramUrl.trim();
     }
 
-    // Ikuti redirect (301/302) jika server mengizinkan HEAD/GET preflight
+    // Ikuti redirect (301/302) jika server mengizinkan akses fetch/CORS
     async function resolveRedirectUrl(initialUrl) {
         try {
             const controller = new AbortController();
@@ -120,7 +119,6 @@
 
             clearTimeout(timeoutId);
 
-            // Tutup body stream segera agar tidak memakan bandwidth sebelum mpegts mengambil alih
             if (response.body) {
                 response.body.cancel().catch(() => {});
             }
@@ -129,7 +127,7 @@
                 return response.url;
             }
         } catch (err) {
-            // Fallback ke URL awal jika preflight diblokir CORS; mpegts tetap mengikuti redirect bawaan browser
+            // Fallback ke URL awal jika preflight diblokir CORS
         }
         return initialUrl;
     }
@@ -171,21 +169,15 @@
             cors: true,
             withCredentials: false
         }, {
-            // --- ANTI PECAH / PATAH-PATAH TIAP 3 DETIK ---
+            // --- KONFIGURASI STABILITAS BUFFER ---
             enableWorker: true,
             enableStashBuffer: true,
-            stashInitialSize: 384,              // Buffer awal 384KB agar GOP pertama mulus
-
-            // Kontrol buffer agar tidak drop frame saat pergantian keyframe (tiap ~3 detik)
-            liveBufferLatencyChasing: true,
-            liveBufferLatencyMaxLatency: 3.5,   // Toleransi delay maksimal 3.5 detik
-            liveBufferLatencyMinRemain: 0.8,    // Jaga sisa buffer minimal 0.8 detik agar tidak underrun
-
-            // Sinkronisasi audio-video & pembersihan memori
-            fixAudioTimestampGap: true,         // Mencegah stutter akibat celah timestamp audio
+            stashInitialSize: 1024,             // Buffer awal 1 MB agar pemutaran lebih tenang
+            liveBufferLatencyChasing: false,    // Cegah loncat/freeze akibat latency chasing agresif
+            fixAudioTimestampGap: true,         // Bantu merapikan celah timestamp audio
             autoCleanupSourceBuffer: true,
-            autoCleanupMaxBackwardDuration: 15,
-            autoCleanupMinBackwardDuration: 5,
+            autoCleanupMaxBackwardDuration: 20,
+            autoCleanupMinBackwardDuration: 8,
             accurateSeek: false,
             seekType: 'range'
         });
@@ -208,12 +200,12 @@
         });
     }
 
-    // Mencegah video freeze / ketinggalan jauh saat tab browser ditinggal lalu dibuka kembali
+    // Mencegah video ketinggalan jauh saat tab browser ditinggal lalu dibuka kembali
     document.addEventListener('visibilitychange', () => {
         if (!document.hidden && videoElement.buffered.length > 0) {
             const end = videoElement.buffered.end(videoElement.buffered.length - 1);
-            if (end - videoElement.currentTime > 4.0) {
-                videoElement.currentTime = end - 0.8;
+            if (end - videoElement.currentTime > 5.0) {
+                videoElement.currentTime = end - 1.0;
             }
         }
     });
