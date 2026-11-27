@@ -23,36 +23,34 @@
       z-index: 9999;
     }
 
-    /* ===== Status / Error ===== */
+    /* Status / Error */
     #status {
       position: absolute; top: 20px; left: 20px; z-index: 100;
       font-size: 14px; color: #fff; text-shadow: 1px 1px 2px #000;
       pointer-events: none;
     }
 
-    /* ===== Panel Kontrol (seperti gambar) ===== */
+    /* ===== Panel Kontrol (Optimasi Ringan) ===== */
     #ctrlPanel {
       position: absolute; bottom: 0; left: 0; width: 100%; z-index: 50;
-      background: linear-gradient(to top, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0) 100%);
-      padding: 20px 15px 10px 15px;
+      background: rgba(0,0,0,0.8); /* Mengganti gradient dengan warna solid agar ringan */
+      padding: 10px 15px;
       display: flex; flex-direction: column; gap: 8px;
       box-sizing: border-box;
-      opacity: 0; transition: opacity 0.3s;
+      opacity: 0; transition: opacity 0.2s;
     }
     #wrap:hover #ctrlPanel,
     #wrap.showCtrl #ctrlPanel { opacity: 1; }
 
-    /* Progress Bar (Live stream = statis, hanya visual) */
+    /* Progress Bar (Live stream = statis, tanpa animasi) */
     .progress-bar {
-      width: 100%; height: 4px; background: rgba(255,255,255,0.2);
-      border-radius: 2px; position: relative; overflow: hidden;
+      width: 100%; height: 3px; background: rgba(255,255,255,0.2);
+      border-radius: 2px;
     }
-    .progress-bar::after {
-      content: ''; position: absolute; top: 0; left: 0;
-      height: 100%; width: 100%; background: #ff0000; /* Merah seperti YouTube */
-      transform-origin: left; animation: pulse 2s infinite alternate;
+    .progress-bar-inner {
+      height: 100%; width: 100%; background: #ff0000; /* Merah statis */
+      border-radius: 2px;
     }
-    @keyframes pulse { from { opacity: 0.6; } to { opacity: 1; } }
 
     /* Baris tombol & teks */
     .controls-row {
@@ -67,7 +65,7 @@
     .controls-row button {
       background: transparent; border: none; color: #fff; cursor: pointer;
       font-size: 16px; padding: 5px; display: flex; align-items: center;
-      justify-content: center; transition: color 0.2s;
+      justify-content: center;
     }
     .controls-row button:hover { color: #ccc; }
 
@@ -94,10 +92,10 @@
 
     <!-- Panel Kontrol -->
     <div id="ctrlPanel">
-      <!-- Garis Progress (Visual saja untuk live) -->
-      <div class="progress-bar"></div>
+      <div class="progress-bar">
+        <div class="progress-bar-inner"></div>
+      </div>
       
-      <!-- Baris Kontrol -->
       <div class="controls-row">
         <div class="left-controls">
           <button id="cPlay" title="Play / Pause">▶</button>
@@ -207,7 +205,6 @@
     let muted = false;
     let lastVol = 80;
 
-    // Play / Pause
     cPlay.onclick = () => {
       try {
         if (playing) { player && player.pause && player.pause(); cPlay.textContent = '▶'; playing = false; }
@@ -215,7 +212,6 @@
       } catch (e) {}
     };
 
-    // Mute
     cMute.onclick = () => {
       try {
         muted = !muted;
@@ -232,7 +228,6 @@
       } catch (e) {}
     };
 
-    // Volume Slider
     cVol.oninput = () => {
       try {
         const v = +cVol.value;
@@ -242,17 +237,15 @@
       } catch (e) {}
     };
 
-    // Fullscreen
     cFull.onclick = goLandscape;
 
-    // Tampilkan Panel saat disentuh di Mobile
     wrap.addEventListener('touchstart', () => {
       wrap.classList.add('showCtrl');
       clearTimeout(wrap._ctrlTimer);
       wrap._ctrlTimer = setTimeout(() => wrap.classList.remove('showCtrl'), 3000);
     }, { passive: true });
 
-    // ===== Player Jessibuca =====
+    // ===== Player Jessibuca (OPTIMASI PERFORMA) =====
     function pickUrl(j) {
       if (typeof j === 'string') return j;
       return j?.url || j?.flv || j?.data?.url || j?.data?.flv || null;
@@ -264,16 +257,23 @@
       
       player = new Jessibuca({
         container: document.getElementById('container'),
-        videoBuffer: 1,
+        
+        // --- OPTIMASI PERFORMA EKSTREM ---
+        videoBuffer: 5,          // Naikkan buffer (dari 1 ke 5) agar tidak sering buffering
         isResize: true,
-        isFullResize: false,
-        useMSE: false,
+        isFullResize: false,     // Jangan paksa full screen render
+        useMSE: true,            // Gunakan MSE (biasanya lebih ringan dari WebGL murni)
+        useWCS: false,           // Matikan WebCodecs (kadang berat di beberapa device)
+        forceNoOffscreen: false, // Biarkan browser pakai OffscreenCanvas (lebih ringan)
+        isNotMute: false,
+        showBandwidth: false,
         text: '',
         loadingText: 'Memuat...',
-        showBandwidth: false,
-        forceNoOffscreen: true,
-        isNotMute: false,
-        // Matikan panel bawaan karena kita pakai panel kustom di bawah
+        
+        // Batasi resolusi maksimal (opsional, ringan untuk HP)
+        // Jika video asli 1080p, ini akan memaksa render lebih kecil
+        // Namun Jessibuca secara default sudah menyesuaikan
+        
         operateBtns: { fullscreen: false, screenshot: false, play: false, audio: false }
       });
 
@@ -288,7 +288,6 @@
       player.play(url);
     }
 
-    // Timer untuk update waktu (0:00, 0:01, dst...) karena live stream tidak punya durasi
     let secondsElapsed = 0;
     setInterval(() => {
       if (playing && player) {
