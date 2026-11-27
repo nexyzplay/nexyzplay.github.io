@@ -6,30 +6,16 @@
   <title>Nexyz</title>
   <style>
     html, body { margin: 0; height: 100%; background: #000; color: #fff; font-family: sans-serif; overflow: hidden; }
-    
-    /* Paksa GPU rendering untuk container video */
-    #wrap { 
-      width: 100%; aspect-ratio: 16 / 9; max-height: 100vh; background: #000; 
-      position: relative; overflow: hidden; margin: 0 auto;
-      transform: translateZ(0);
-    }
+    #wrap { width: 100%; aspect-ratio: 16 / 9; max-height: 100vh; background: #000; position: relative; overflow: hidden; margin: 0 auto; }
     #container { width: 100%; height: 100%; }
-
-    /* Fullscreen */
     #wrap:fullscreen { width: 100vw; height: 100vh; aspect-ratio: auto; max-height: none; margin: 0; }
     #wrap:fullscreen #ctrlPanel { display: none !important; }
-
-    /* Rotated fallback */
     #wrap.rotated {
       position: fixed; top: 0; left: 0; width: 100vh; height: 100vw; aspect-ratio: auto; max-height: none;
       transform-origin: top left; transform: translateX(100vw) rotate(90deg); z-index: 9999;
     }
     #wrap.rotated #ctrlPanel { display: none !important; }
-
-    /* Status / Error */
     #status { position: absolute; top: 20px; left: 20px; z-index: 100; font-size: 14px; color: #fff; text-shadow: 1px 1px 2px #000; pointer-events: none; }
-
-    /* Panel Kontrol */
     #ctrlPanel {
       position: absolute; bottom: 0; left: 0; width: 100%; z-index: 50;
       background: rgba(0,0,0,0.8); padding: 10px 15px; display: flex; flex-direction: column; gap: 8px;
@@ -113,11 +99,12 @@
     ['click', 'touchend'].forEach(ev => document.addEventListener(ev, keepAwake, { passive: true }));
     keepAwake();
 
-    // ===== Refit / Resize (hanya saat start & fullscreen toggle) =====
+    // ===== Refit / Resize =====
     function refit() {
       setTimeout(() => {
         try { if (player && player.resize) player.resize(); } catch (e) {}
-      }, 200);
+        try { if (player && player.setScaleMode) player.setScaleMode(0); } catch (e) {}
+      }, 150);
     }
 
     // ===== Rotated fallback =====
@@ -167,6 +154,7 @@
       }
       refit();
     });
+    window.addEventListener('resize', refit);
 
     // ===== Tombol Kontrol =====
     const cPlay = document.getElementById('cPlay');
@@ -255,7 +243,7 @@
       wrap._ctrlTimer = setTimeout(() => wrap.classList.remove('showCtrl'), 3000);
     }, { passive: true });
 
-    // ===== Player Jessibuca (stabil + teroptimasi) =====
+    // ===== Player Jessibuca (KONFIGURASI ASLI YANG BERHASIL) =====
     function pickUrl(j) {
       if (typeof j === 'string') return j;
       return j?.url || j?.flv || j?.data?.url || j?.data?.flv || null;
@@ -267,23 +255,15 @@
 
       player = new Jessibuca({
         container: document.getElementById('container'),
-        
-        // --- Konfigurasi stabil (soft-decode) ---
-        videoBuffer: 10,          // buffer besar, toleran jitter
-        isResize: true,           // biarkan Jessibuca menyesuaikan ukuran
-        isFullResize: false,      // jangan paksa render full
-        useMSE: false,            // soft-decode (paling kompatibel FLV)
-        useWCS: false,
-        forceNoOffscreen: false,  // default, paling stabil
-        
-        // Audio
-        hasAudio: true,
-        isNotMute: true,
-        
-        // UI
-        showBandwidth: false,
+        videoBuffer: 1,
+        isResize: true,
+        isFullResize: false,
+        useMSE: false,
         text: '',
         loadingText: 'Memuat...',
+        showBandwidth: false,
+        forceNoOffscreen: true,
+        isNotMute: false,
         operateBtns: { fullscreen: false, screenshot: false, play: false, audio: false }
       });
 
@@ -294,13 +274,6 @@
         keepAwake();
         playing = true;
         cPlay.textContent = '⏸';
-
-        // Debug state audio
-        try {
-          console.log('[Jessibuca] isMute:', player.isMute && player.isMute());
-          console.log('[Jessibuca] volume:', player.getVolume && player.getVolume());
-        } catch (e) {}
-
         try { player.setVolume && player.setVolume(lastVol / 100); } catch (e) {}
       });
 
