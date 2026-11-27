@@ -30,14 +30,12 @@
       display: flex; flex-direction: column; gap: 8px;
       box-sizing: border-box;
       opacity: 0; transition: opacity 0.3s;
-      pointer-events: none; /* Agar tidak menghalangi klik video saat hidden */
+      pointer-events: none;
     }
 
-    /* Tampil saat hover (desktop) atau showCtrl (mobile/fullscreen) */
     #wrap:hover #ctrlPanel,
     #wrap.showCtrl #ctrlPanel { opacity: 1; pointer-events: auto; }
 
-    /* Sembunyikan panel saat fullscreen dan tidak ada interaksi */
     #wrap:fullscreen #ctrlPanel { opacity: 0; pointer-events: none; }
     #wrap:fullscreen.showCtrl #ctrlPanel { opacity: 1; pointer-events: auto; }
 
@@ -68,17 +66,14 @@
     <div id="container"></div>
     <div id="status"></div>
 
-    <!-- Panel Kontrol -->
     <div id="ctrlPanel">
       <div class="progress-bar"><div class="progress-bar-inner"></div></div>
-      
       <div class="controls-row">
         <div class="left-controls">
           <button id="cPlay" title="Play / Pause">▶</button>
           <span class="time-display" id="liveTime">0:00</span>
           <span class="live-badge">LIVE</span>
         </div>
-        
         <div class="right-controls">
           <div class="vol-wrap">
             <button id="cMute" title="Mute">🔊</button>
@@ -166,7 +161,7 @@
         await wrap.requestFullscreen();
         if (screen.orientation && screen.orientation.lock) await screen.orientation.lock('landscape');
         refit();
-        showCtrl(); // Tampilkan panel saat masuk fullscreen
+        showCtrl();
         return;
       } catch (e) { forceRotate(true); showCtrl(); }
     }
@@ -267,21 +262,19 @@
 
     cFull.onclick = toggleFullscreen;
 
-    // ===== Fungsi Auto Hide Panel =====
+    // ===== Auto Hide Panel =====
     function showCtrl() {
       wrap.classList.add('showCtrl');
       clearTimeout(hideCtrlTimer);
-      // Panel otomatis hilang setelah 2.5 detik
       hideCtrlTimer = setTimeout(() => {
         wrap.classList.remove('showCtrl');
       }, 2500);
     }
 
-    // Tampilkan panel saat layar disentuh (mobile) atau mouse bergerak (desktop)
     wrap.addEventListener('mousemove', showCtrl);
     wrap.addEventListener('touchstart', showCtrl, { passive: true });
 
-    // ===== Player Jessibuca =====
+    // ===== Player Jessibuca (Buffer 5 Detik) =====
     function pickUrl(j) {
       if (typeof j === 'string') return j;
       return j?.url || j?.flv || j?.data?.url || j?.data?.flv || null;
@@ -293,14 +286,20 @@
 
       player = new Jessibuca({
         container: document.getElementById('container'),
-        videoBuffer: 1,
+        
+        // --- Optimasi Buffer untuk Live H.264 ---
+        videoBuffer: 5,           // Buffer 5 detik (menyerap jitter)
         isResize: true,
         isFullResize: false,
-        useMSE: false,
+        useMSE: false,            // Soft-decode (lebih stabil untuk live)
         useWCS: false,
         forceNoOffscreen: true,
+        
+        // Audio
         hasAudio: true,
         isNotMute: false,
+        
+        // UI
         text: '',
         loadingText: 'Memuat...',
         showBandwidth: false,
