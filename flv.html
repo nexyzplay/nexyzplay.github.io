@@ -6,102 +6,40 @@
   <title>Nexyz</title>
   <style>
     html, body { margin: 0; height: 100%; background: #000; color: #fff; font-family: sans-serif; overflow: hidden; }
-
-    /* ===== Mode Normal: video wajar 16:9, tidak ditarik full ===== */
-    #wrap {
-      width: 100%;
-      aspect-ratio: 16 / 9;
-      max-height: 100vh;      /* jangan lebih tinggi dari layar */
-      background: #000;
-      position: relative;
-      overflow: hidden;
-      margin: 0 auto;         /* center horizontal */
-    }
+    #wrap { width: 100%; aspect-ratio: 16 / 9; max-height: 100vh; background: #000; position: relative; overflow: hidden; margin: 0 auto; }
     #container { width: 100%; height: 100%; }
-
-    /* ===== Mode Fullscreen: penuh ===== */
-    #wrap:fullscreen {
-      width: 100vw;
-      height: 100vh;
-      aspect-ratio: auto;
-      max-height: none;
-      margin: 0;
-    }
+    #wrap:fullscreen { width: 100vw; height: 100vh; aspect-ratio: auto; max-height: none; margin: 0; }
     #wrap:fullscreen #ctrlPanel { display: none !important; }
-
-    /* ===== Mode Rotated (fallback iPhone) ===== */
     #wrap.rotated {
-      position: fixed; top: 0; left: 0;
-      width: 100vh; height: 100vw;
-      aspect-ratio: auto;
-      max-height: none;
-      transform-origin: top left;
-      transform: translateX(100vw) rotate(90deg);
-      z-index: 9999;
+      position: fixed; top: 0; left: 0; width: 100vh; height: 100vw; aspect-ratio: auto; max-height: none;
+      transform-origin: top left; transform: translateX(100vw) rotate(90deg); z-index: 9999;
     }
     #wrap.rotated #ctrlPanel { display: none !important; }
-
-    /* Status / Error */
-    #status {
-      position: absolute; top: 20px; left: 20px; z-index: 100;
-      font-size: 14px; color: #fff; text-shadow: 1px 1px 2px #000;
-      pointer-events: none;
-    }
-
-    /* ===== Panel Kontrol ===== */
+    #status { position: absolute; top: 20px; left: 20px; z-index: 100; font-size: 14px; color: #fff; text-shadow: 1px 1px 2px #000; pointer-events: none; }
     #ctrlPanel {
       position: absolute; bottom: 0; left: 0; width: 100%; z-index: 50;
-      background: rgba(0,0,0,0.8);
-      padding: 10px 15px;
-      display: flex; flex-direction: column; gap: 8px;
-      box-sizing: border-box;
-      opacity: 0; transition: opacity 0.2s;
+      background: rgba(0,0,0,0.8); padding: 10px 15px; display: flex; flex-direction: column; gap: 8px;
+      box-sizing: border-box; opacity: 0; transition: opacity 0.2s;
     }
-    #wrap:hover #ctrlPanel,
-    #wrap.showCtrl #ctrlPanel { opacity: 1; }
-
-    .progress-bar {
-      width: 100%; height: 3px; background: rgba(255,255,255,0.2);
-      border-radius: 2px;
-    }
-    .progress-bar-inner {
-      height: 100%; width: 100%; background: #ff0000;
-      border-radius: 2px;
-    }
-
-    .controls-row {
-      display: flex; justify-content: space-between; align-items: center;
-      color: #fff; font-size: 13px;
-    }
-    .left-controls, .right-controls {
-      display: flex; align-items: center; gap: 15px;
-    }
-    .controls-row button {
-      background: transparent; border: none; color: #fff; cursor: pointer;
-      font-size: 16px; padding: 5px; display: flex; align-items: center;
-      justify-content: center;
-    }
+    #wrap:hover #ctrlPanel, #wrap.showCtrl #ctrlPanel { opacity: 1; }
+    .progress-bar { width: 100%; height: 3px; background: rgba(255,255,255,0.2); border-radius: 2px; }
+    .progress-bar-inner { height: 100%; width: 100%; background: #ff0000; border-radius: 2px; }
+    .controls-row { display: flex; justify-content: space-between; align-items: center; color: #fff; font-size: 13px; }
+    .left-controls, .right-controls { display: flex; align-items: center; gap: 15px; }
+    .controls-row button { background: transparent; border: none; color: #fff; cursor: pointer; font-size: 16px; padding: 5px; display: flex; align-items: center; justify-content: center; }
     .controls-row button:hover { color: #ccc; }
-
     .vol-wrap { display: flex; align-items: center; gap: 5px; }
     .vol-wrap input[type=range] { width: 70px; accent-color: #fff; cursor: pointer; }
     .time-display { font-family: monospace; font-size: 13px; }
-
-    #exit {
-      display: none; position: fixed; top: 10px; left: 10px; z-index: 10000;
-      padding: 6px 10px; border: 0; border-radius: 6px; background: rgba(0,0,0,0.6); color: #fff; cursor: pointer;
-    }
+    #exit { display: none; position: fixed; top: 10px; left: 10px; z-index: 10000; padding: 6px 10px; border: 0; border-radius: 6px; background: rgba(0,0,0,0.6); color: #fff; cursor: pointer; }
   </style>
 </head>
 <body>
   <div id="wrap">
     <div id="container"></div>
     <div id="status"></div>
-
     <div id="ctrlPanel">
-      <div class="progress-bar">
-        <div class="progress-bar-inner"></div>
-      </div>
+      <div class="progress-bar"><div class="progress-bar-inner"></div></div>
       <div class="controls-row">
         <div class="left-controls">
           <button id="cPlay" title="Play / Pause">▶</button>
@@ -118,7 +56,6 @@
       </div>
     </div>
   </div>
-
   <button id="exit">✕ Keluar</button>
 
   <script src="https://cdn.jsdelivr.net/npm/nosleep.js@0.12.0/dist/NoSleep.min.js"></script>
@@ -134,6 +71,7 @@
     const params = new URLSearchParams(location.search);
     const target = params.get('url');
     let player;
+    let audioUnlocked = false;
 
     // ===== Cegah layar redup / mati =====
     let wakeLock = null;
@@ -169,7 +107,7 @@
       }, 150);
     }
 
-    // ===== Rotated fallback (iPhone) =====
+    // ===== Rotated fallback =====
     function forceRotate(on) {
       wrap.classList.toggle('rotated', on);
       btnExit.style.display = on ? 'block' : 'none';
@@ -181,56 +119,36 @@
       keepAwake();
       try { player && player.audioResume && player.audioResume(); } catch (e) {}
 
-      // Jika sedang fullscreen -> keluar
       if (document.fullscreenElement) {
-        try {
-          if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock();
-        } catch (e) {}
+        try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch (e) {}
         try { await document.exitFullscreen(); } catch (e) {}
         refit();
         return;
       }
-
-      // Jika sedang rotated fallback -> matikan
       if (wrap.classList.contains('rotated')) {
         forceRotate(false);
         return;
       }
-
-      // Coba masuk fullscreen
       try {
         await wrap.requestFullscreen();
-        if (screen.orientation && screen.orientation.lock) {
-          await screen.orientation.lock('landscape');
-        }
+        if (screen.orientation && screen.orientation.lock) await screen.orientation.lock('landscape');
         refit();
         return;
-      } catch (e) {
-        // Fallback rotate CSS
-        forceRotate(true);
-      }
+      } catch (e) { forceRotate(true); }
     }
 
-    // Tombol ✕ Keluar
     btnExit.onclick = async () => {
-      if (wrap.classList.contains('rotated')) {
-        forceRotate(false);
-        return;
-      }
+      if (wrap.classList.contains('rotated')) { forceRotate(false); return; }
       if (document.fullscreenElement) {
-        try {
-          if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock();
-        } catch (e) {}
+        try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch (e) {}
         try { await document.exitFullscreen(); } catch (e) {}
         refit();
-        return;
       }
     };
 
     document.addEventListener('fullscreenchange', () => {
       const isFs = !!document.fullscreenElement || wrap.classList.contains('rotated');
       btnExit.style.display = isFs ? 'block' : 'none';
-
       if (!document.fullscreenElement && screen.orientation && screen.orientation.unlock) {
         try { screen.orientation.unlock(); } catch (e) {}
       }
@@ -249,35 +167,76 @@
     let muted = false;
     let lastVol = 80;
 
+    // ===== AUDIO UNLOCK =====
+    // Harus dipanggil LANGSUNG di dalam event handler gesture (bukan setTimeout/async)
+    function unlockAudio() {
+      if (audioUnlocked) return;
+      try {
+        if (player) {
+          player.cancelMute && player.cancelMute();
+          player.audioResume && player.audioResume();
+          player.setVolume && player.setVolume(lastVol / 100);
+        }
+        audioUnlocked = true;
+        cMute.textContent = '🔊';
+      } catch (e) {}
+    }
+
+    // Listener gesture pertama pada area video / panel / halaman
+    wrap.addEventListener('click', unlockAudio);
+    wrap.addEventListener('touchstart', unlockAudio, { passive: true });
+    document.body.addEventListener('click', unlockAudio, { once: true });
+    document.body.addEventListener('touchstart', unlockAudio, { once: true, passive: true });
+
+    // ===== Tombol Play / Pause =====
     cPlay.onclick = () => {
       try {
-        if (playing) { player && player.pause && player.pause(); cPlay.textContent = '▶'; playing = false; }
-        else { player && player.play && player.play(); cPlay.textContent = '⏸'; playing = true; }
+        if (playing) {
+          player && player.pause && player.pause();
+          cPlay.textContent = '▶';
+          playing = false;
+        } else {
+          player && player.play && player.play();
+          cPlay.textContent = '⏸';
+          playing = true;
+          unlockAudio();  // gesture langsung
+        }
       } catch (e) {}
     };
 
+    // ===== Tombol Mute =====
     cMute.onclick = () => {
       try {
         muted = !muted;
         if (muted) {
-          lastVol = +cVol.value;
+          lastVol = +cVol.value || 80;
           cVol.value = 0;
           player && player.setVolume && player.setVolume(0);
           cMute.textContent = '🔇';
         } else {
           cVol.value = lastVol;
+          player && player.cancelMute && player.cancelMute();
+          player && player.audioResume && player.audioResume();
           player && player.setVolume && player.setVolume(lastVol / 100);
           cMute.textContent = '🔊';
         }
       } catch (e) {}
     };
 
+    // ===== Slider Volume =====
     cVol.oninput = () => {
       try {
         const v = +cVol.value;
         player && player.setVolume && player.setVolume(v / 100);
-        if (v > 0) { muted = false; cMute.textContent = '🔊'; }
-        else { muted = true; cMute.textContent = '🔇'; }
+        if (v > 0) {
+          muted = false;
+          cMute.textContent = '🔊';
+          player && player.cancelMute && player.cancelMute();
+          player && player.audioResume && player.audioResume();
+        } else {
+          muted = true;
+          cMute.textContent = '🔇';
+        }
       } catch (e) {}
     };
 
@@ -298,16 +257,17 @@
     function play(url) {
       show('');
       if (player) player.destroy();
-      
+
       player = new Jessibuca({
         container: document.getElementById('container'),
         videoBuffer: 5,
         isResize: true,
         isFullResize: false,
-        useMSE: true,
+        useMSE: false,            // soft-decode, audio lebih kompatibel
         useWCS: false,
         forceNoOffscreen: false,
-        isNotMute: false,
+        hasAudio: true,           // paksa decode audio
+        isNotMute: true,          // siap unmute
         showBandwidth: false,
         text: '',
         loadingText: 'Memuat...',
@@ -315,13 +275,23 @@
       });
 
       player.on('error', e => show('Stream error: ' + e));
+
       player.on('start', () => {
         refit();
         keepAwake();
         playing = true;
         cPlay.textContent = '⏸';
-        try { player.setVolume && player.setVolume(cVol.value / 100); } catch (e) {}
+
+        // Debug: cek state mute & volume
+        try {
+          console.log('[Jessibuca] isMute:', player.isMute && player.isMute());
+          console.log('[Jessibuca] volume:', player.getVolume && player.getVolume());
+        } catch (e) {}
+
+        // Set volume (tidak memanggil audioResume di sini, karena bukan gesture)
+        try { player.setVolume && player.setVolume(lastVol / 100); } catch (e) {}
       });
+
       player.play(url);
     }
 
