@@ -11,8 +11,7 @@
     #wrap { 
       width: 100%; aspect-ratio: 16 / 9; max-height: 100vh; background: #000; 
       position: relative; overflow: hidden; margin: 0 auto;
-      transform: translateZ(0); 
-      will-change: transform;
+      transform: translateZ(0);
     }
     #container { width: 100%; height: 100%; }
 
@@ -114,14 +113,10 @@
     ['click', 'touchend'].forEach(ev => document.addEventListener(ev, keepAwake, { passive: true }));
     keepAwake();
 
-    // ===== Refit / Resize (dipanggil HANYA saat fullscreen / rotate berubah) =====
-    // Tidak dipanggil terus-menerus untuk menghindari reflow
+    // ===== Refit / Resize (hanya saat start & fullscreen toggle) =====
     function refit() {
-      // Delay sedikit agar layout selesai berubah dulu
       setTimeout(() => {
         try { if (player && player.resize) player.resize(); } catch (e) {}
-        // setScaleMode(0) = showAll (tanpa crop)
-        try { if (player && player.setScaleMode) player.setScaleMode(0); } catch (e) {}
       }, 200);
     }
 
@@ -260,7 +255,7 @@
       wrap._ctrlTimer = setTimeout(() => wrap.classList.remove('showCtrl'), 3000);
     }, { passive: true });
 
-    // ===== Player Jessibuca (PERFORMA MAKSIMAL) =====
+    // ===== Player Jessibuca (stabil + teroptimasi) =====
     function pickUrl(j) {
       if (typeof j === 'string') return j;
       return j?.url || j?.flv || j?.data?.url || j?.data?.flv || null;
@@ -273,13 +268,13 @@
       player = new Jessibuca({
         container: document.getElementById('container'),
         
-        // --- Optimasi Performa ---
-        videoBuffer: 10,          // Buffer besar: serap jitter jaringan
-        isResize: false,          // Matikan auto-resize (hemat CPU, ukuran diatur CSS)
-        isFullResize: false,      // Jangan paksa render full
-        useMSE: true,             // MSE lebih ringan dari WebGL di banyak device
-        useWCS: false,            // Matikan WebCodecs (kadang berat)
-        forceNoOffscreen: true,   // Paksa render on-screen (hindari overhead offscreen di device tertentu)
+        // --- Konfigurasi stabil (soft-decode) ---
+        videoBuffer: 10,          // buffer besar, toleran jitter
+        isResize: true,           // biarkan Jessibuca menyesuaikan ukuran
+        isFullResize: false,      // jangan paksa render full
+        useMSE: false,            // soft-decode (paling kompatibel FLV)
+        useWCS: false,
+        forceNoOffscreen: false,  // default, paling stabil
         
         // Audio
         hasAudio: true,
@@ -295,10 +290,16 @@
       player.on('error', e => show('Stream error: ' + e));
 
       player.on('start', () => {
-        refit(); // Hanya resize saat start, bukan berulang
+        refit();
         keepAwake();
         playing = true;
         cPlay.textContent = '⏸';
+
+        // Debug state audio
+        try {
+          console.log('[Jessibuca] isMute:', player.isMute && player.isMute());
+          console.log('[Jessibuca] volume:', player.getVolume && player.getVolume());
+        } catch (e) {}
 
         try { player.setVolume && player.setVolume(lastVol / 100); } catch (e) {}
       });
