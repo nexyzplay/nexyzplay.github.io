@@ -3,34 +3,50 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Nexyz</title>
+  <title>Nexyz - XGPlayer</title>
+
+  <!-- XGPlayer CSS -->
+  <link rel="stylesheet" href="https://unpkg.byted-static.com/xgplayer/3.0.16/dist/index.min.css">
+
   <style>
     html, body { margin: 0; height: 100%; background: #000; color: #fff; font-family: sans-serif; overflow: hidden; }
     #wrap { width: 100%; aspect-ratio: 16 / 9; max-height: 100vh; background: #000; position: relative; overflow: hidden; margin: 0 auto; }
     #container { width: 100%; height: 100%; }
+
     #wrap:fullscreen { width: 100vw; height: 100vh; aspect-ratio: auto; max-height: none; margin: 0; }
     #wrap:fullscreen #ctrlPanel { display: none !important; }
+
     #wrap.rotated {
       position: fixed; top: 0; left: 0; width: 100vh; height: 100vw; aspect-ratio: auto; max-height: none;
       transform-origin: top left; transform: translateX(100vw) rotate(90deg); z-index: 9999;
     }
     #wrap.rotated #ctrlPanel { display: none !important; }
+
     #status { position: absolute; top: 20px; left: 20px; z-index: 100; font-size: 14px; color: #fff; text-shadow: 1px 1px 2px #000; pointer-events: none; }
+
     #ctrlPanel {
       position: absolute; bottom: 0; left: 0; width: 100%; z-index: 50;
       background: rgba(0,0,0,0.8); padding: 10px 15px; display: flex; flex-direction: column; gap: 8px;
       box-sizing: border-box; opacity: 0; transition: opacity 0.2s;
     }
     #wrap:hover #ctrlPanel, #wrap.showCtrl #ctrlPanel { opacity: 1; }
+
     .progress-bar { width: 100%; height: 3px; background: rgba(255,255,255,0.2); border-radius: 2px; }
     .progress-bar-inner { height: 100%; width: 100%; background: #ff0000; border-radius: 2px; }
+
     .controls-row { display: flex; justify-content: space-between; align-items: center; color: #fff; font-size: 13px; }
     .left-controls, .right-controls { display: flex; align-items: center; gap: 15px; }
-    .controls-row button { background: transparent; border: none; color: #fff; cursor: pointer; font-size: 16px; padding: 5px; display: flex; align-items: center; justify-content: center; }
+
+    .controls-row button {
+      background: transparent; border: none; color: #fff; cursor: pointer;
+      font-size: 16px; padding: 5px; display: flex; align-items: center; justify-content: center;
+    }
     .controls-row button:hover { color: #ccc; }
+
     .vol-wrap { display: flex; align-items: center; gap: 5px; }
     .vol-wrap input[type=range] { width: 70px; accent-color: #fff; cursor: pointer; }
     .time-display { font-family: monospace; font-size: 13px; }
+
     #exit { display: none; position: fixed; top: 10px; left: 10px; z-index: 10000; padding: 6px 10px; border: 0; border-radius: 6px; background: rgba(0,0,0,0.6); color: #fff; cursor: pointer; }
   </style>
 </head>
@@ -38,6 +54,7 @@
   <div id="wrap">
     <div id="container"></div>
     <div id="status"></div>
+
     <div id="ctrlPanel">
       <div class="progress-bar"><div class="progress-bar-inner"></div></div>
       <div class="controls-row">
@@ -56,10 +73,16 @@
       </div>
     </div>
   </div>
+
   <button id="exit">✕ Keluar</button>
 
+  <!-- NoSleep -->
   <script src="https://cdn.jsdelivr.net/npm/nosleep.js@0.12.0/dist/NoSleep.min.js"></script>
-  <script src="jessibuca.js"></script>
+
+  <!-- XGPlayer + FLV Plugin -->
+  <script src="https://unpkg.byted-static.com/xgplayer/3.0.16/dist/index.min.js"></script>
+  <script src="https://unpkg.byted-static.com/xgplayer-flv/3.0.16/dist/index.min.js"></script>
+
   <script>
     const statusEl = document.getElementById('status');
     const wrap = document.getElementById('wrap');
@@ -70,8 +93,7 @@
 
     const params = new URLSearchParams(location.search);
     const target = params.get('url');
-    let player;
-    let audioUnlocked = false;
+    let player = null;
 
     // ===== Cegah layar redup / mati =====
     let wakeLock = null;
@@ -99,11 +121,10 @@
     ['click', 'touchend'].forEach(ev => document.addEventListener(ev, keepAwake, { passive: true }));
     keepAwake();
 
-    // ===== Refit / Resize =====
+    // ===== Refit =====
     function refit() {
       setTimeout(() => {
         try { if (player && player.resize) player.resize(); } catch (e) {}
-        try { if (player && player.setScaleMode) player.setScaleMode(0); } catch (e) {}
       }, 150);
     }
 
@@ -117,7 +138,6 @@
     // ===== Fullscreen toggle =====
     async function toggleFullscreen() {
       keepAwake();
-      try { player && player.audioResume && player.audioResume(); } catch (e) {}
 
       if (document.fullscreenElement) {
         try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch (e) {}
@@ -167,33 +187,30 @@
     let muted = false;
     let lastVol = 80;
 
-    // ===== AUDIO UNLOCK =====
+    // ===== AUDIO UNLOCK (sama seperti sebelumnya) =====
+    let audioUnlocked = false;
     function unlockAudio() {
-      if (audioUnlocked) return;
+      if (audioUnlocked || !player) return;
       try {
-        if (player) {
-          player.cancelMute && player.cancelMute();
-          player.audioResume && player.audioResume();
-          player.setVolume && player.setVolume(lastVol / 100);
-        }
-        audioUnlocked = true;
-        cMute.textContent = '🔊';
+        player.muted = false;
+        player.volume = lastVol / 100;
       } catch (e) {}
+      audioUnlocked = true;
+      cMute.textContent = '🔊';
     }
 
     wrap.addEventListener('click', unlockAudio);
     wrap.addEventListener('touchstart', unlockAudio, { passive: true });
-    document.body.addEventListener('click', unlockAudio, { once: true });
-    document.body.addEventListener('touchstart', unlockAudio, { once: true, passive: true });
 
     cPlay.onclick = () => {
       try {
+        if (!player) return;
         if (playing) {
-          player && player.pause && player.pause();
+          player.pause();
           cPlay.textContent = '▶';
           playing = false;
         } else {
-          player && player.play && player.play();
+          player.play();
           cPlay.textContent = '⏸';
           playing = true;
           unlockAudio();
@@ -203,17 +220,17 @@
 
     cMute.onclick = () => {
       try {
+        if (!player) return;
         muted = !muted;
         if (muted) {
           lastVol = +cVol.value || 80;
           cVol.value = 0;
-          player && player.setVolume && player.setVolume(0);
+          player.volume = 0;
           cMute.textContent = '🔇';
         } else {
           cVol.value = lastVol;
-          player && player.cancelMute && player.cancelMute();
-          player && player.audioResume && player.audioResume();
-          player && player.setVolume && player.setVolume(lastVol / 100);
+          player.muted = false;
+          player.volume = lastVol / 100;
           cMute.textContent = '🔊';
         }
       } catch (e) {}
@@ -221,17 +238,11 @@
 
     cVol.oninput = () => {
       try {
+        if (!player) return;
         const v = +cVol.value;
-        player && player.setVolume && player.setVolume(v / 100);
-        if (v > 0) {
-          muted = false;
-          cMute.textContent = '🔊';
-          player && player.cancelMute && player.cancelMute();
-          player && player.audioResume && player.audioResume();
-        } else {
-          muted = true;
-          cMute.textContent = '🔇';
-        }
+        player.volume = v / 100;
+        if (v > 0) { muted = false; cMute.textContent = '🔊'; }
+        else { muted = true; cMute.textContent = '🔇'; }
       } catch (e) {}
     };
 
@@ -243,7 +254,7 @@
       wrap._ctrlTimer = setTimeout(() => wrap.classList.remove('showCtrl'), 3000);
     }, { passive: true });
 
-    // ===== Player Jessibuca (KONFIGURASI ASLI YANG BERHASIL) =====
+    // ===== XGPlayer Init =====
     function pickUrl(j) {
       if (typeof j === 'string') return j;
       return j?.url || j?.flv || j?.data?.url || j?.data?.flv || null;
@@ -251,33 +262,56 @@
 
     function play(url) {
       show('');
-      if (player) player.destroy();
+      if (player) {
+        try { player.destroy(); } catch (e) {}
+        player = null;
+      }
 
-      player = new Jessibuca({
-        container: document.getElementById('container'),
-        videoBuffer: 1,
-        isResize: true,
-        isFullResize: false,
-        useMSE: false,
-        text: '',
-        loadingText: 'Memuat...',
-        showBandwidth: false,
-        forceNoOffscreen: true,
-        isNotMute: false,
-        operateBtns: { fullscreen: false, screenshot: false, play: false, audio: false }
+      // Cek dukungan FLV plugin
+      if (!window.FlvPlugin || !window.FlvPlugin.isSupported()) {
+        show('Browser tidak mendukung FLV (butuh MSE)');
+        return;
+      }
+
+      player = new window.Player({
+        id: 'container',
+        url: url,
+        isLive: true,
+        autoplay: true,
+        playsinline: true,
+        volume: lastVol / 100,
+        plugins: [window.FlvPlugin],
+        // Matikan kontrol bawaan xgplayer karena kita pakai panel sendiri
+        controls: false,
+        // Konfigurasi FLV
+        flv: {
+          targetLatency: 5,      // target delay 5 detik
+          maxLatency: 10,        // kalau delay >10 detik, seek ke target
+          bufferBehind: 10,      // simpan buffer 10 detik ke belakang
+          retryCount: 3,
+          retryDelay: 1000,
+          loadTimeout: 10000
+        }
       });
 
-      player.on('error', e => show('Stream error: ' + e));
+      player.on('error', (e) => {
+        show('Stream error: ' + (e?.message || e));
+      });
 
       player.on('start', () => {
         refit();
         keepAwake();
         playing = true;
         cPlay.textContent = '⏸';
-        try { player.setVolume && player.setVolume(lastVol / 100); } catch (e) {}
+        try { player.volume = lastVol / 100; } catch (e) {}
       });
 
-      player.play(url);
+      // Fallback kalau autoplay diblokir
+      player.on('autoplay_was_prevented', () => {
+        cPlay.textContent = '▶';
+        playing = false;
+        show('Klik play untuk memulai');
+      });
     }
 
     let secondsElapsed = 0;
@@ -291,27 +325,30 @@
     }, 1000);
 
     async function start() {
-      if (!window.Jessibuca) return show('jessibuca.js tidak ditemukan');
       if (!target) return show('Pakai: ?url=ENDPOINT/?id=ROOM_ID');
 
       show('Loading...');
       const ctrl = new AbortController();
-      const res = await fetch(target, { signal: ctrl.signal });
-      const type = res.headers.get('content-type') || '';
+      try {
+        const res = await fetch(target, { signal: ctrl.signal });
+        const type = res.headers.get('content-type') || '';
 
-      if (type.includes('json')) {
-        const j = await res.json();
-        if (j?.live === false) return show('Room offline / tidak ditemukan');
-        const flv = pickUrl(j);
-        if (!flv) return show('JSON tidak berisi link FLV: ' + JSON.stringify(j).slice(0, 150));
-        play(flv);
-      } else if (type.includes('text/')) {
-        const t = (await res.text()).trim();
-        if (/^https?:\/\//.test(t)) play(t);
-        else show('Respons tidak dikenali: ' + t.slice(0, 150));
-      } else {
-        ctrl.abort();
-        play(target);
+        if (type.includes('json')) {
+          const j = await res.json();
+          if (j?.live === false) return show('Room offline / tidak ditemukan');
+          const flv = pickUrl(j);
+          if (!flv) return show('JSON tidak berisi link FLV: ' + JSON.stringify(j).slice(0, 150));
+          play(flv);
+        } else if (type.includes('text/')) {
+          const t = (await res.text()).trim();
+          if (/^https?:\/\//.test(t)) play(t);
+          else show('Respons tidak dikenali: ' + t.slice(0, 150));
+        } else {
+          ctrl.abort();
+          play(target);
+        }
+      } catch (e) {
+        show('Fetch error: ' + e.message);
       }
     }
     start();
