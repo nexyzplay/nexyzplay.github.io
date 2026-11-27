@@ -6,19 +6,35 @@
   <title>Nexyz</title>
   <style>
     html, body { margin: 0; height: 100%; background: #000; color: #fff; font-family: sans-serif; overflow: hidden; }
-    #wrap { width: 100%; height: 100%; background: #000; position: relative; overflow: hidden; }
+
+    /* ===== Mode Normal: video wajar 16:9, tidak ditarik full ===== */
+    #wrap {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      max-height: 100vh;      /* jangan lebih tinggi dari layar */
+      background: #000;
+      position: relative;
+      overflow: hidden;
+      margin: 0 auto;         /* center horizontal */
+    }
     #container { width: 100%; height: 100%; }
 
-    /* Fullscreen asli */
-    #wrap:fullscreen { width: 100%; height: 100%; }
-
-    /* Saat fullscreen: sembunyikan panel kontrol */
+    /* ===== Mode Fullscreen: penuh ===== */
+    #wrap:fullscreen {
+      width: 100vw;
+      height: 100vh;
+      aspect-ratio: auto;
+      max-height: none;
+      margin: 0;
+    }
     #wrap:fullscreen #ctrlPanel { display: none !important; }
 
-    /* Putar paksa (fallback iPhone) */
+    /* ===== Mode Rotated (fallback iPhone) ===== */
     #wrap.rotated {
       position: fixed; top: 0; left: 0;
       width: 100vh; height: 100vw;
+      aspect-ratio: auto;
+      max-height: none;
       transform-origin: top left;
       transform: translateX(100vw) rotate(90deg);
       z-index: 9999;
@@ -195,7 +211,7 @@
       }
     }
 
-    // Tombol ✕ Keluar: keluar dari rotated atau fullscreen
+    // Tombol ✕ Keluar
     btnExit.onclick = async () => {
       if (wrap.classList.contains('rotated')) {
         forceRotate(false);
@@ -211,9 +227,7 @@
       }
     };
 
-    // Update tombol exit saat fullscreen berubah
     document.addEventListener('fullscreenchange', () => {
-      // Tampilkan tombol exit saat fullscreen / rotated
       const isFs = !!document.fullscreenElement || wrap.classList.contains('rotated');
       btnExit.style.display = isFs ? 'block' : 'none';
 
@@ -267,7 +281,6 @@
       } catch (e) {}
     };
 
-    // Fullscreen toggle (masuk / keluar)
     cFull.onclick = toggleFullscreen;
 
     wrap.addEventListener('touchstart', () => {
