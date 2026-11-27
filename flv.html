@@ -10,9 +10,9 @@
     /* Container Utama */
     #wrap { width: 100%; height: 100%; background: #000; position: relative; overflow: hidden; }
     
-    /* WXInlinePlayer menggunakan Canvas, bukan video tag */
+    /* WXInlinePlayer menggunakan Canvas */
     #container { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
-    #container canvas { max-width: 100%; max-height: 100%; }
+    #container canvas { max-width: 100%; max-height: 100%; object-fit: contain; }
 
     #wrap:fullscreen { width: 100vw; height: 100vh; }
     #wrap.rotated {
@@ -51,7 +51,6 @@
 </head>
 <body>
   <div id="wrap">
-    <!-- WXInlinePlayer memerlukan canvas, bukan div -->
     <div id="container">
         <canvas id="wx-canvas"></canvas>
     </div>
@@ -79,8 +78,8 @@
 
   <script src="https://cdn.jsdelivr.net/npm/nosleep.js@0.12.0/dist/NoSleep.min.js"></script>
   
-  <!-- 1. 加载 WXInlinePlayer 核心库 (请确保路径正确) -->
-  <script src="./wxplayer/index.js"></script>
+  <!-- Path disesuaikan dengan struktur root repo kamu -->
+  <script src="./index.js"></script>
   
   <script>
     const statusEl = document.getElementById('status');
@@ -170,13 +169,12 @@
     let muted = false;
     let lastVol = 80;
 
-    // ===== Audio Unlock (WXInlinePlayer sangat ketat soal ini) =====
+    // ===== Audio Unlock =====
     function unlockAudio() {
       if (audioUnlocked || !player) return;
       try {
         player.mute(false);
         player.volume(lastVol / 100);
-        // Coba panggil play lagi jika sebelumnya gagal karena menunggu gesture
         player.play();
       } catch (e) {}
       audioUnlocked = true;
@@ -234,7 +232,7 @@
     wrap.addEventListener('mousemove', showCtrl);
     wrap.addEventListener('touchstart', showCtrl, { passive: true });
 
-    // ===== 播放器初始化 =====
+    // ===== Player Initialization =====
     async function initPlayer(url) {
       show('');
       
@@ -243,12 +241,11 @@
         return;
       }
 
-      // 必须先 init 解码器，请确保路径正确
-      // 建议使用 all 版本以获得更好的兼容性和性能
+      // Inisialisasi decoder (path disesuaikan dengan root)
       try {
         await WXInlinePlayer.init({
-            asmUrl: './wxplayer/prod.all.asm.combine.js',
-            wasmUrl: './wxplayer/prod.all.wasm.combine.js'
+            asmUrl: './prod.all.asm.combine.js',
+            wasmUrl: './prod.all.wasm.combine.js'
         });
         await WXInlinePlayer.ready();
       } catch (e) {
@@ -256,7 +253,7 @@
         return;
       }
 
-      // 创建实例
+      // Buat instance player
       player = new WXInlinePlayer({
         url: url,
         $container: canvasEl,
@@ -265,14 +262,14 @@
         volume: lastVol / 100,
         muted: false,
         autoplay: true,
-        isLive: true,          // 直播流
+        isLive: true,
         chunkSize: 128 * 1024,
         preloadTime: 500,
         bufferingTime: 1000,
         cacheSegmentCount: 64
       });
 
-      // 监听事件
+      // Event listener
       player.on('playing', () => {
         show('');
         playing = true;
@@ -284,9 +281,8 @@
         show('Stream error: ' + (err.detail || err.statusText));
       });
 
-      // 由于浏览器策略，自动播放可能被阻止，提示用户点击
       player.play().catch(() => {
-        show('点击屏幕以播放');
+        show('Klik layar untuk play');
         cPlay.textContent = '▶';
         playing = false;
       });
