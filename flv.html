@@ -1,226 +1,152 @@
 <!DOCTYPE html>
 <html lang="id">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FLV Live Player</title>
-    <script src="https://cdn.jsdelivr.net/npm/mpegts.js@1.7.3/dist/mpegts.min.js"></script>
-    <style>
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
-        body {
-            background-color: #000;
-            color: #fff;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            overflow: hidden;
-        }
-        #player-wrapper {
-            position: relative;
-            width: 100%;
-            height: 100%;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-        }
-        video {
-            width: 100%;
-            height: 100%;
-            object-fit: contain;
-            background: #000;
-        }
-        #overlay-msg {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background: rgba(0, 0, 0, 0.85);
-            padding: 16px 24px;
-            border-radius: 8px;
-            border: 1px solid #333;
-            text-align: center;
-            font-size: 14px;
-            color: #f1f1f1;
-            max-width: 90%;
-            z-index: 10;
-            display: none;
-        }
-        #overlay-msg code {
-            display: block;
-            margin-top: 8px;
-            padding: 6px 10px;
-            background: #1a1a1a;
-            border-radius: 4px;
-            color: #4ade80;
-            word-break: break-all;
-        }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lightweight FLV Player (Jessibuca)</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      background: #000;
+      color: #fff;
+      font-family: system-ui, -apple-system, sans-serif;
+      overflow: hidden;
+    }
+    #player {
+      width: 100vw;
+      height: 100vh;
+    }
+    #status {
+      position: fixed;
+      top: 12px;
+      left: 12px;
+      z-index: 20;
+      padding: 6px 10px;
+      font-size: 12px;
+      background: rgba(0, 0, 0, 0.65);
+      border-radius: 4px;
+      pointer-events: none;
+      max-width: calc(100vw - 24px);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .hidden { display: none !important; }
+  </style>
+  <!-- Load Jessibuca dari CDN resmi / jsDelivr (sesuaikan versi/path repo GitHub jika di-host sendiri) -->
+  <script src="https://cdn.jsdelivr.net/npm/jessibuca@latest/dist/jessibuca.js"></script>
 </head>
 <body>
+  <div id="status">Memuat...</div>
+  <div id="player"></div>
 
-<div id="player-wrapper">
-    <video id="videoElement" controls autoplay muted playsinline></video>
-    <div id="overlay-msg"></div>
-</div>
+  <script>
+    (function () {
+      const statusEl = document.getElementById("status");
+      const containerEl = document.getElementById("player");
 
-<script>
-    const videoElement = document.getElementById('videoElement');
-    const overlayMsg = document.getElementById('overlay-msg');
-
-    let player = null;
-    let reconnectTimer = null;
-
-    function showMessage(htmlContent) {
-        overlayMsg.innerHTML = htmlContent;
-        overlayMsg.style.display = 'block';
-    }
-
-    function hideMessage() {
-        overlayMsg.style.display = 'none';
-    }
-
-    // Ambil parameter wajib ?url=... (mendukung URL dengan '?' atau '&' di dalamnya)
-    function getStreamUrlFromQuery() {
-        const rawSearch = window.location.search;
-        if (!rawSearch) return null;
-
-        const urlParams = new URLSearchParams(rawSearch);
-        const paramUrl = urlParams.get('url');
-        if (!paramUrl) return null;
-
-        const match = rawSearch.match(/[?&]url=(.+)$/);
-        if (match && match[1]) {
-            try {
-                return decodeURIComponent(match[1].trim());
-            } catch (e) {
-                return match[1].trim();
-            }
+      const setStatus = (msg, autoHideMs = 0) => {
+        statusEl.textContent = msg;
+        statusEl.classList.remove("hidden");
+        if (autoHideMs > 0) {
+          clearTimeout(setStatus._t);
+          setStatus._t = setTimeout(() => statusEl.classList.add("hidden"), autoHideMs);
         }
-        return paramUrl.trim();
-    }
+      };
 
-    // Ikuti redirect (301/302) jika server mengizinkan akses fetch/CORS
-    async function resolveRedirectUrl(initialUrl) {
+      const params = new URLSearchParams(window.location.search);
+      const rawUrl = params.get("url");
+
+      if (!rawUrl) {
+        setStatus("Parameter ?url= kosong. Contoh: ?url=https://contoh.com/live.flv");
+        return;
+      }
+
+      // Mengurai redirect jika endpoint mengembalikan response teks/JSON/redirect URL,
+      // lalu tetap fallback ke URL asli agar Jessibuca menanganinya langsung jika CORS memblokir fetch.
+      async function resolveStreamUrl(targetUrl) {
         try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 5000);
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 4000);
 
-            const response = await fetch(initialUrl, {
-                method: 'GET',
-                redirect: 'follow',
-                signal: controller.signal
-            });
+          const res = await fetch(targetUrl, {
+            method: "GET",
+            redirect: "follow",
+            signal: controller.signal
+          });
+          clearTimeout(timer);
 
-            clearTimeout(timeoutId);
+          // Jika fetch mengikuti redirect ke URL akhir yang berbeda
+          if (res.url && res.url !== targetUrl) {
+            return res.url;
+          }
 
-            if (response.body) {
-                response.body.cancel().catch(() => {});
+          const contentType = (res.headers.get("content-type") || "").toLowerCase();
+          if (contentType.includes("application/json")) {
+            const data = await res.json();
+            const found = data.url || data.stream || data.playUrl || data.data?.url;
+            if (typeof found === "string" && found.startsWith("http")) {
+              return found;
             }
-
-            if (response.url && response.url !== initialUrl) {
-                return response.url;
+          } else if (contentType.includes("text/plain") || contentType.includes("text/uri-list")) {
+            const text = (await res.text()).trim();
+            if (text.startsWith("http")) {
+              return text;
             }
-        } catch (err) {
-            // Fallback ke URL awal jika preflight diblokir CORS
+          }
+        } catch (_) {
+          // Abaikan error fetch (misalnya CORS atau stream langsung) dan biarkan Jessibuca memproses rawUrl
         }
-        return initialUrl;
-    }
+        return targetUrl;
+      }
 
-    function destroyPlayer() {
-        if (player) {
-            try {
-                player.pause();
-                player.unload();
-                player.detachMediaElement();
-                player.destroy();
-            } catch (e) {}
-            player = null;
+      // Konfigurasi ringan & minim delay untuk mencegah slow-motion
+      const jessibuca = new Jessibuca({
+        container: containerEl,
+        videoBuffer: 0.2,        // Buffer kecil (detik) agar tidak menumpuk & slow-mo
+        isResize: false,         // Hindari kalkulasi resize berlebih saat playback
+        useWCS: true,            // Gunakan WebCodecs jika tersedia (lebih ringan dari software decode)
+        useMSE: false,           // Matikan MSE jika ingin kontrol buffer ketat untuk FLV
+        hasAudio: true,
+        hasVideo: true,
+        operateBtns: {
+          fullscreen: true,
+          screenshot: false,
+          play: true,
+          audio: true,
+          record: false
+        },
+        forceNoOffscreen: false,
+        hiddenAutoPause: false,
+        debug: false
+      });
+
+      jessibuca.on("load", () => setStatus("Stream dimuat..."));
+      jessibuca.on("start", () => setStatus("Memutar", 2000));
+      jessibuca.on("error", (err) => setStatus("Error: " + (err || "Gagal memutar stream")));
+      jessibuca.on("timeout", () => setStatus("Koneksi timeout"));
+
+      // Bersihkan resource saat tab/halaman ditutup
+      window.addEventListener("beforeunload", () => {
+        try { jessibuca.destroy(); } catch (_) {}
+      });
+
+      resolveStreamUrl(rawUrl).then((finalUrl) => {
+        setStatus("Menghubungkan ke stream...");
+        const playPromise = jessibuca.play(finalUrl);
+        if (playPromise && typeof playPromise.catch === "function") {
+          playPromise.catch(() => {
+            // Jika autoplay diblokir browser, coba play lagi saat user klik layar
+            setStatus("Klik layar untuk mulai memutar");
+            containerEl.addEventListener("click", () => {
+              jessibuca.play(finalUrl);
+            }, { once: true });
+          });
         }
-    }
-
-    function scheduleReconnect(streamUrl) {
-        clearTimeout(reconnectTimer);
-        reconnectTimer = setTimeout(() => {
-            startPlayer(streamUrl);
-        }, 3000);
-    }
-
-    async function startPlayer(rawUrl) {
-        if (!mpegts.getFeatureList().mseLivePlayback) {
-            showMessage('Browser ini tidak mendukung pemutaran MSE Live FLV.');
-            return;
-        }
-
-        destroyPlayer();
-        showMessage('Menghubungkan ke stream...');
-
-        const finalUrl = await resolveRedirectUrl(rawUrl);
-
-        player = mpegts.createPlayer({
-            type: 'flv',
-            isLive: true,
-            url: finalUrl,
-            cors: true,
-            withCredentials: false
-        }, {
-            // --- KONFIGURASI STABILITAS BUFFER ---
-            enableWorker: true,
-            enableStashBuffer: true,
-            stashInitialSize: 1024,             // Buffer awal 1 MB agar pemutaran lebih tenang
-            liveBufferLatencyChasing: false,    // Cegah loncat/freeze akibat latency chasing agresif
-            fixAudioTimestampGap: true,         // Bantu merapikan celah timestamp audio
-            autoCleanupSourceBuffer: true,
-            autoCleanupMaxBackwardDuration: 20,
-            autoCleanupMinBackwardDuration: 8,
-            accurateSeek: false,
-            seekType: 'range'
-        });
-
-        player.attachMediaElement(videoElement);
-        player.load();
-
-        player.play().then(() => {
-            hideMessage();
-        }).catch(() => {
-            showMessage('Klik tombol Play pada video untuk memulai pemutaran.');
-        });
-
-        videoElement.addEventListener('playing', hideMessage, { once: true });
-
-        // Auto-reconnect jika terjadi error jaringan / stream terputus
-        player.on(mpegts.Events.ERROR, (errorType, errorDetail) => {
-            showMessage(`Koneksi terganggu (${errorDetail}). Menyambung ulang...`);
-            scheduleReconnect(rawUrl);
-        });
-    }
-
-    // Mencegah video ketinggalan jauh saat tab browser ditinggal lalu dibuka kembali
-    document.addEventListener('visibilitychange', () => {
-        if (!document.hidden && videoElement.buffered.length > 0) {
-            const end = videoElement.buffered.end(videoElement.buffered.length - 1);
-            if (end - videoElement.currentTime > 5.0) {
-                videoElement.currentTime = end - 1.0;
-            }
-        }
-    });
-
-    // Inisialisasi saat halaman dimuat
-    const targetUrl = getStreamUrlFromQuery();
-    if (!targetUrl) {
-        showMessage(
-            'Parameter <b>url</b> wajib diisi.<br>Contoh penggunaan:' +
-            '<code>flv.html?url=https://xcdn-hy.vercel.app/?id=30805929</code>'
-        );
-    } else {
-        startPlayer(targetUrl);
-    }
-</script>
-
+      });
+    })();
+  </script>
 </body>
 </html>
