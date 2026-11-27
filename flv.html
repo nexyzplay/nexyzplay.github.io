@@ -3,18 +3,18 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Nexyz</title>
+  <title>Nexyz - WXInlinePlayer</title>
   <style>
     html, body { margin: 0; height: 100%; background: #000; color: #fff; font-family: sans-serif; overflow: hidden; }
     
     /* Container Utama */
     #wrap { width: 100%; height: 100%; background: #000; position: relative; overflow: hidden; }
-    #container { width: 100%; height: 100%; }
+    
+    /* WXInlinePlayer menggunakan Canvas, bukan video tag */
+    #container { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+    #container canvas { max-width: 100%; max-height: 100%; }
 
-    /* Fullscreen */
     #wrap:fullscreen { width: 100vw; height: 100vh; }
-
-    /* Fallback rotate iPhone */
     #wrap.rotated {
       position: fixed; top: 0; left: 0; width: 100vh; height: 100vw;
       transform-origin: top left; transform: translateX(100vw) rotate(90deg); z-index: 9999;
@@ -22,20 +22,14 @@
 
     #status { position: absolute; top: 20px; left: 20px; z-index: 100; font-size: 14px; color: #fff; text-shadow: 1px 1px 2px #000; pointer-events: none; }
 
-    /* ===== Panel Kontrol Gaya HTML5 ===== */
+    /* ===== Panel Kontrol ===== */
     #ctrlPanel {
       position: absolute; bottom: 0; left: 0; width: 100%; z-index: 50;
       background: linear-gradient(to top, rgba(0,0,0,0.8), transparent);
-      padding: 20px 15px 10px 15px;
-      display: flex; flex-direction: column; gap: 8px;
-      box-sizing: border-box;
-      opacity: 0; transition: opacity 0.3s;
-      pointer-events: none;
+      padding: 20px 15px 10px 15px; display: flex; flex-direction: column; gap: 8px;
+      box-sizing: border-box; opacity: 0; transition: opacity 0.3s; pointer-events: none;
     }
-
-    #wrap:hover #ctrlPanel,
-    #wrap.showCtrl #ctrlPanel { opacity: 1; pointer-events: auto; }
-
+    #wrap:hover #ctrlPanel, #wrap.showCtrl #ctrlPanel { opacity: 1; pointer-events: auto; }
     #wrap:fullscreen #ctrlPanel { opacity: 0; pointer-events: none; }
     #wrap:fullscreen.showCtrl #ctrlPanel { opacity: 1; pointer-events: auto; }
 
@@ -44,17 +38,11 @@
 
     .controls-row { display: flex; justify-content: space-between; align-items: center; color: #fff; font-size: 14px; }
     .left-controls, .right-controls { display: flex; align-items: center; gap: 15px; }
-    
-    .controls-row button {
-      background: transparent; border: none; color: #fff; cursor: pointer;
-      font-size: 18px; padding: 5px; display: flex; align-items: center; justify-content: center;
-      transition: color 0.2s;
-    }
+    .controls-row button { background: transparent; border: none; color: #fff; cursor: pointer; font-size: 18px; padding: 5px; display: flex; align-items: center; justify-content: center; }
     .controls-row button:hover { color: #ccc; }
 
     .vol-wrap { display: flex; align-items: center; gap: 5px; }
     .vol-wrap input[type=range] { width: 80px; accent-color: #fff; cursor: pointer; }
-    
     .time-display { font-family: monospace; font-size: 14px; margin-left: 10px; }
     .live-badge { font-size: 12px; opacity: 0.8; margin-left: 5px; color: #ff0000; font-weight: bold; }
 
@@ -63,7 +51,10 @@
 </head>
 <body>
   <div id="wrap">
-    <div id="container"></div>
+    <!-- WXInlinePlayer memerlukan canvas, bukan div -->
+    <div id="container">
+        <canvas id="wx-canvas"></canvas>
+    </div>
     <div id="status"></div>
 
     <div id="ctrlPanel">
@@ -84,22 +75,26 @@
       </div>
     </div>
   </div>
-
   <button id="exit">✕ Keluar</button>
 
   <script src="https://cdn.jsdelivr.net/npm/nosleep.js@0.12.0/dist/NoSleep.min.js"></script>
-  <script src="jessibuca.js"></script>
+  
+  <!-- 1. 加载 WXInlinePlayer 核心库 (请确保路径正确) -->
+  <script src="./wxplayer/index.js"></script>
+  
   <script>
     const statusEl = document.getElementById('status');
     const wrap = document.getElementById('wrap');
     const btnExit = document.getElementById('exit');
+    const canvasEl = document.getElementById('wx-canvas');
     const show = m => statusEl.textContent = m;
+    
     window.addEventListener('error', e => show('Error: ' + e.message));
     window.addEventListener('unhandledrejection', e => show('Error: ' + (e.reason?.message || e.reason)));
 
     const params = new URLSearchParams(location.search);
     const target = params.get('url');
-    let player;
+    let player = null;
     let audioUnlocked = false;
     let hideCtrlTimer = null;
 
@@ -120,47 +115,29 @@
         if (noSleep && !noSleepOn) { await noSleep.enable(); noSleepOn = true; }
       } catch (e) {}
     }
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') keepAwake();
-    });
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') keepAwake(); });
     document.addEventListener('fullscreenchange', keepAwake);
     ['click', 'touchend'].forEach(ev => document.addEventListener(ev, keepAwake, { passive: true }));
     keepAwake();
-
-    // ===== Refit =====
-    function refit() {
-      setTimeout(() => {
-        try { if (player && player.resize) player.resize(); } catch (e) {}
-        try { if (player && player.setScaleMode) player.setScaleMode(0); } catch (e) {}
-      }, 150);
-    }
 
     // ===== Rotated fallback =====
     function forceRotate(on) {
       wrap.classList.toggle('rotated', on);
       btnExit.style.display = on ? 'block' : 'none';
-      refit();
     }
 
     // ===== Fullscreen toggle =====
     async function toggleFullscreen() {
       keepAwake();
-      try { player && player.audioResume && player.audioResume(); } catch (e) {}
-
       if (document.fullscreenElement) {
         try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch (e) {}
         try { await document.exitFullscreen(); } catch (e) {}
-        refit();
         return;
       }
-      if (wrap.classList.contains('rotated')) {
-        forceRotate(false);
-        return;
-      }
+      if (wrap.classList.contains('rotated')) { forceRotate(false); return; }
       try {
         await wrap.requestFullscreen();
         if (screen.orientation && screen.orientation.lock) await screen.orientation.lock('landscape');
-        refit();
         showCtrl();
         return;
       } catch (e) { forceRotate(true); showCtrl(); }
@@ -171,7 +148,6 @@
       if (document.fullscreenElement) {
         try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch (e) {}
         try { await document.exitFullscreen(); } catch (e) {}
-        refit();
       }
     };
 
@@ -181,9 +157,7 @@
       if (!document.fullscreenElement && screen.orientation && screen.orientation.unlock) {
         try { screen.orientation.unlock(); } catch (e) {}
       }
-      refit();
     });
-    window.addEventListener('resize', refit);
 
     // ===== Tombol Kontrol =====
     const cPlay = document.getElementById('cPlay');
@@ -196,13 +170,14 @@
     let muted = false;
     let lastVol = 80;
 
-    // ===== Audio Unlock =====
+    // ===== Audio Unlock (WXInlinePlayer sangat ketat soal ini) =====
     function unlockAudio() {
       if (audioUnlocked || !player) return;
       try {
-        player.cancelMute && player.cancelMute();
-        player.audioResume && player.audioResume();
-        player.setVolume && player.setVolume(lastVol / 100);
+        player.mute(false);
+        player.volume(lastVol / 100);
+        // Coba panggil play lagi jika sebelumnya gagal karena menunggu gesture
+        player.play();
       } catch (e) {}
       audioUnlocked = true;
       cMute.textContent = '🔊';
@@ -212,111 +187,109 @@
     wrap.addEventListener('touchstart', unlockAudio, { passive: true });
 
     cPlay.onclick = () => {
-      try {
-        if (playing) {
-          player && player.pause && player.pause();
-          cPlay.textContent = '▶';
-          playing = false;
-        } else {
-          player && player.play && player.play();
-          cPlay.textContent = '⏸';
-          playing = true;
-          unlockAudio();
-        }
-      } catch (e) {}
+      if (!player) return;
+      if (playing) {
+        player.pause();
+        cPlay.textContent = '▶';
+        playing = false;
+      } else {
+        player.resume();
+        cPlay.textContent = '⏸';
+        playing = true;
+        unlockAudio();
+      }
     };
 
     cMute.onclick = () => {
-      try {
-        muted = !muted;
-        if (muted) {
-          lastVol = +cVol.value || 80;
-          cVol.value = 0;
-          player && player.setVolume && player.setVolume(0);
-          cMute.textContent = '🔇';
-        } else {
-          cVol.value = lastVol;
-          player && player.cancelMute && player.cancelMute();
-          player && player.audioResume && player.audioResume();
-          player && player.setVolume && player.setVolume(lastVol / 100);
-          cMute.textContent = '🔊';
-        }
-      } catch (e) {}
+      if (!player) return;
+      muted = !muted;
+      if (muted) {
+        lastVol = +cVol.value || 80;
+        cVol.value = 0;
+        player.volume(0);
+        cMute.textContent = '🔇';
+      } else {
+        cVol.value = lastVol;
+        player.mute(false);
+        player.volume(lastVol / 100);
+        cMute.textContent = '🔊';
+      }
     };
 
     cVol.oninput = () => {
-      try {
-        const v = +cVol.value;
-        player && player.setVolume && player.setVolume(v / 100);
-        if (v > 0) {
-          muted = false;
-          cMute.textContent = '🔊';
-          player && player.cancelMute && player.cancelMute();
-          player && player.audioResume && player.audioResume();
-        } else {
-          muted = true;
-          cMute.textContent = '🔇';
-        }
-      } catch (e) {}
+      if (!player) return;
+      const v = +cVol.value;
+      player.volume(v / 100);
+      if (v > 0) { muted = false; cMute.textContent = '🔊'; }
+      else { muted = true; cMute.textContent = '🔇'; }
     };
 
     cFull.onclick = toggleFullscreen;
 
-    // ===== Auto Hide Panel =====
     function showCtrl() {
       wrap.classList.add('showCtrl');
       clearTimeout(hideCtrlTimer);
-      hideCtrlTimer = setTimeout(() => {
-        wrap.classList.remove('showCtrl');
-      }, 2500);
+      hideCtrlTimer = setTimeout(() => { wrap.classList.remove('showCtrl'); }, 2500);
     }
-
     wrap.addEventListener('mousemove', showCtrl);
     wrap.addEventListener('touchstart', showCtrl, { passive: true });
 
-    // ===== Player Jessibuca (Buffer 5 Detik) =====
-    function pickUrl(j) {
-      if (typeof j === 'string') return j;
-      return j?.url || j?.flv || j?.data?.url || j?.data?.flv || null;
-    }
-
-    function play(url) {
+    // ===== 播放器初始化 =====
+    async function initPlayer(url) {
       show('');
-      if (player) player.destroy();
+      
+      if (typeof WXInlinePlayer === 'undefined' || !WXInlinePlayer.isSupport()) {
+        show('Error: WXInlinePlayer 不支持或未加载。');
+        return;
+      }
 
-      player = new Jessibuca({
-        container: document.getElementById('container'),
-        
-        // --- Optimasi Buffer untuk Live H.264 ---
-        videoBuffer: 5,           // Buffer 5 detik (menyerap jitter)
-        isResize: true,
-        isFullResize: false,
-        useMSE: false,            // Soft-decode (lebih stabil untuk live)
-        useWCS: false,
-        forceNoOffscreen: true,
-        
-        // Audio
+      // 必须先 init 解码器，请确保路径正确
+      // 建议使用 all 版本以获得更好的兼容性和性能
+      try {
+        await WXInlinePlayer.init({
+            asmUrl: './wxplayer/prod.all.asm.combine.js',
+            wasmUrl: './wxplayer/prod.all.wasm.combine.js'
+        });
+        await WXInlinePlayer.ready();
+      } catch (e) {
+        show('Error: 解码器加载失败。' + e.message);
+        return;
+      }
+
+      // 创建实例
+      player = new WXInlinePlayer({
+        url: url,
+        $container: canvasEl,
+        hasVideo: true,
         hasAudio: true,
-        isNotMute: false,
-        
-        // UI
-        text: '',
-        loadingText: 'Memuat...',
-        showBandwidth: false,
-        operateBtns: { fullscreen: false, screenshot: false, play: false, audio: false }
+        volume: lastVol / 100,
+        muted: false,
+        autoplay: true,
+        isLive: true,          // 直播流
+        chunkSize: 128 * 1024,
+        preloadTime: 500,
+        bufferingTime: 1000,
+        cacheSegmentCount: 64
       });
 
-      player.on('error', e => show('Stream error: ' + e));
-
-      player.on('start', () => {
-        refit();
-        keepAwake();
+      // 监听事件
+      player.on('playing', () => {
+        show('');
         playing = true;
         cPlay.textContent = '⏸';
-        try { player.setVolume && player.setVolume(lastVol / 100); } catch (e) {}
+        keepAwake();
       });
 
-      player.play(url);
+      player.on('loadError', (err) => {
+        show('Stream error: ' + (err.detail || err.statusText));
+      });
+
+      // 由于浏览器策略，自动播放可能被阻止，提示用户点击
+      player.play().catch(() => {
+        show('点击屏幕以播放');
+        cPlay.textContent = '▶';
+        playing = false;
+      });
     }
 
     let secondsElapsed = 0;
@@ -330,27 +303,30 @@
     }, 1000);
 
     async function start() {
-      if (!window.Jessibuca) return show('jessibuca.js tidak ditemukan');
       if (!target) return show('Pakai: ?url=ENDPOINT/?id=ROOM_ID');
-
       show('Loading...');
+      
       const ctrl = new AbortController();
-      const res = await fetch(target, { signal: ctrl.signal });
-      const type = res.headers.get('content-type') || '';
+      try {
+        const res = await fetch(target, { signal: ctrl.signal });
+        const type = res.headers.get('content-type') || '';
 
-      if (type.includes('json')) {
-        const j = await res.json();
-        if (j?.live === false) return show('Room offline / tidak ditemukan');
-        const flv = pickUrl(j);
-        if (!flv) return show('JSON tidak berisi link FLV: ' + JSON.stringify(j).slice(0, 150));
-        play(flv);
-      } else if (type.includes('text/')) {
-        const t = (await res.text()).trim();
-        if (/^https?:\/\//.test(t)) play(t);
-        else show('Respons tidak dikenali: ' + t.slice(0, 150));
-      } else {
-        ctrl.abort();
-        play(target);
+        if (type.includes('json')) {
+          const j = await res.json();
+          if (j?.live === false) return show('Room offline / tidak ditemukan');
+          const flv = j?.url || j?.flv || j?.data?.url || j?.data?.flv;
+          if (!flv) return show('JSON tidak berisi link FLV: ' + JSON.stringify(j).slice(0, 150));
+          initPlayer(flv);
+        } else if (type.includes('text/')) {
+          const t = (await res.text()).trim();
+          if (/^https?:\/\//.test(t)) initPlayer(t);
+          else show('Respons tidak dikenali: ' + t.slice(0, 150));
+        } else {
+          ctrl.abort();
+          initPlayer(target);
+        }
+      } catch (e) {
+        show('Fetch error: ' + e.message);
       }
     }
     start();
