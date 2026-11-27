@@ -161,36 +161,26 @@
       });
       window.addEventListener('resize', refit);
 
-      // ===== Deteksi Otomatis WebCodecs (useWCS) =====
-      function canUseWCS() {
-        return Boolean(
-          window.isSecureContext &&
-          typeof window.VideoDecoder === 'function'
-        );
-      }
-
-      // ===== Player (Ringan, Anti Slow-Mo, Auto useWCS) =====
+      // ===== Player (useMSE Utama + Fallback Non-MSE) =====
       function pickUrl(j) {
         if (typeof j === 'string') return j.trim();
         return j?.url || j?.flv || j?.data?.url || j?.data?.flv || null;
       }
 
-      function play(url, forceDisableWcs = false) {
+      function play(url, useMSE = true, allowFallback = true) {
         show('');
         if (player) {
           try { player.destroy(); } catch (_) {}
           player = null;
         }
 
-        const useWCS = forceDisableWcs ? false : canUseWCS();
-
         player = new Jessibuca({
           container,
           videoBuffer: 0.2,
           isResize: false,
           isFullResize: false,
-          useMSE: false,
-          useWCS,
+          useMSE,
+          useWCS: false,
           text: '',
           loadingText: 'Memuat...',
           showBandwidth: false,
@@ -205,8 +195,8 @@
         });
 
         player.on('error', e => {
-          if (useWCS && !forceDisableWcs) {
-            play(url, true);
+          if (useMSE && allowFallback) {
+            play(url, false, false);
             return;
           }
           show('Stream error: ' + e);
