@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<title>M3U8 Player</title>
+<style>
+  html, body { margin: 0; width: 100%; height: 100%; background: #000; overflow: hidden; }
+  video {
+    position: fixed; inset: 0; width: 100%; height: 100%;
+    object-fit: contain; background: #000;
+  }
+  :fullscreen #msg, :-webkit-full-screen #msg { display: none !important; }
+  #msg {
+    position: fixed; left: 50%; bottom: 12%; transform: translateX(-50%);
+    max-width: 90%; padding: 8px 14px; border-radius: 6px;
+    background: rgba(0,0,0,.75); color: #fff; font: 14px system-ui, sans-serif;
+    text-align: center; display: none; z-index: 10;
+  }
+</style>
+</head>
+<body>
+<video id="video" controls autoplay playsinline
+       referrerpolicy="no-referrer"
+       disablepictureinpicture
+       controlslist="nodownload noplaybackrate"></video>
+<div id="msg" role="status"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js"></script>
+<script>
+  const REFRESH_MS = 90 * 1000; // refresh tiap 90 detik (link expired 2 menit)
+
+  const m = location.search.match(/[?&]url=(.*)$/);
+  let ORIGIN = m ? m[1] : "";
+  if (/^https?%3A/i.test(ORIGIN)) ORIGIN = decodeURIComponent(ORIGIN);
+
+  const video = document.getElementById("video");
+  const msg = document.getElementById("msg");
+
+  function show(text) {
+    msg.textContent = text;
+    msg.style.display = text ? "block" : "none";
+  }
+
+  // --- Fullscreen helper ---
+  function enterFullscreen(el) {
+    const fn = el.requestFullscreen || el.webkitRequestFullscreen
+      || el.webkitEnterFullscreen || el.mozRequestFullScreen || el.msRequestFullscreen;
+    if (fn) { try { fn.call(el); } catch (e) {} }
+  }
+  function exitFullscreen() {
+    const fn = document.exitFullscreen || document.webkitExitFullscreen
+      || document.mozCancelFullScreen || document.msExitFullscreen;
+    if (fn) { try { fn.call(document); } catch (e) {} }
+  }
+  function toggleFullscreen() {
+    const isFs = document.fullscreenElement || document.webkitFullscreenElement;
+    if (isFs) exitFullscreen(); else enterFullscreen(document.documentElement);
+  }
+
+  // --- Resolve link asli (ikuti redirect / ambil m3u8 dari respons) ---
+  async function resolveUrl() {
+    try {
+      const r = await fetch(ORIGIN, {
+        redirect: "follow",
+        cache: "no-store",
+        referrerPolicy: "no-referrer"
+      });
+      const ct = r.headers.get("content-type") || "";
+
+      // Redirect terjadi -> URL akhir sudah berbeda
+      if (r.url && r.url !== ORIGIN) {
+        try { r.body && r.body.cancel(); } catch (e) {}
+        return r.url;
+      }
+      // Langsung playlist m3u8
+      if (/mpegurl/i.test(ct)) {
+        try { r.body && r.body.cancel(); } catch (e) {}
+        return r.url || ORIGIN;
+      }
+      // Respons teks/JSON yang berisi link m3u8
+      let t = (await r.text()).trim().replace(/\\\//g, "/");
+      if (t.startsWith("#EXTM3U")) return r.url || ORIGIN;
+      const mm = t.match(/https?:\/\/[^\s"'\\<>]+\.m3u8[^\s"'\\<>]*/i);
+      if (mm) return mm[0];
+    } catch (e) {
+      // CORS/jaringan gagal -> fallback ke link asli (browser tetap ikut redirect)
+    }
+    return ORIGIN;
+  }
+
+  let hls = null;
+  let refreshing = false;
+
+  async function loadStream(isRefresh) {
+    if (refreshing) return;
+    refreshing = true;
+    try {
+      if (isRefresh) show("Memperbarui link...");
+      const url = await resolveUrl();
+
+      if (hls) {
+        hls.loadSource(url);
+        hls.startLoad(-1);
+      } else if (video.canPlayType("application/vnd.apple.mpegurl") && !(window.Hls && Hls.isSupported())) {
+        // Safari/iOS native
+        video.src = url;
+        video.play().catch(() => {});
+      }
+    } finally {
+      refreshing = false;
+    }
+  }
+
+  function startHls() {
+    hls = new Hls({
+      fetchSetup: (ctx, init) => {
+        init.referrerPolicy = "no-referrer";
+        init.referrer = "";
+        return new Request(ctx.url, init);
+      }
+    });
+    hls.attachMedia(video);
+    hls.on(Hls.Events.MANIFEST_PARSED, () => {
+      show("");
+      video.play().catch(() => { video.muted = true; video.play().catch(() => {}); });
+    });
+    hls.on(Hls.Events.ERROR, async (_, d) => {
+      if (!d.fatal) return;
+      if (d.type === Hls.ErrorTypes.NETWORK_ERROR) {
+        show("Jaringan bermasalah, mengambil link baru...");
+        await loadStream(true); // link kemungkinan expired
+      } else if (d.type === Hls.ErrorTypes.MEDIA_ERROR) {
+        show("Memulihkan media...");
+        hls.recoverMediaError();
+      } else {
+        show("Error: " + d.details);
+        hls.destroy(); hls = null;
+      }
+    });
+    video.addEventListener("playing", () => show(""));
+  }
+
+  if (!ORIGIN) {
+    show("URL kosong. Pakai: m3u8.html?url=LINK_ATAU_REDIRECT");
+  } else if (window.Hls && Hls.isSupported()) {
+    startHls();
+    loadStream(false);
+  } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+    loadStream(false);
+  } else {
+    show("Browser tidak mendukung HLS.");
+  }
+
+  // Auto refresh ke link asli
+  if (ORIGIN) {
+    setInterval(() => loadStream(true), REFRESH_MS);
+    // Saat tab kembali aktif, langsung refresh (timer bisa tertunda di background)
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) loadStream(true);
+    });
+  }
+
+  video.addEventListener("dblclick", toggleFullscreen);
+  ["fullscreenchange", "webkitfullscreenchange"].forEach(ev =>
+    document.addEventListener(ev, () => {
+      if (document.fullscreenElement || document.webkitFullscreenElement) show("");
+    })
+  );
+  video.addEventListener("contextmenu", e => e.preventDefault());
+</script>
+</body>
+</html>
