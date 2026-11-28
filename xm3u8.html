@@ -22,7 +22,6 @@
 </head>
 <body>
 <video id="video" controls autoplay playsinline
-       referrerpolicy="no-referrer"
        disablepictureinpicture
        controlslist="nodownload noplaybackrate"></video>
 <div id="msg" role="status"></div>
@@ -30,9 +29,8 @@
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js"></script>
 <script>
   // ================= PENGATURAN =================
-  const REFRESH_MS = 90 * 1000;  // refresh tiap 90 detik (link expired 2 menit)
-  const PROXY = "";              // opsional, contoh: "https://nama.workers.dev/" atau
-                                 // "https://nama.vercel.app/api/proxy". Kosong = tanpa proxy.
+  const REFRESH_MS = 90 * 1000;                            // refresh tiap 90 detik
+  const CORS_PROXY = "https://xcorsany.xenoinfinity.com/"; // proxy gaya cors-anywhere ("" = nonaktif)
   // ==============================================
 
   const m = location.search.match(/[?&]url=(.*)$/);
@@ -63,39 +61,28 @@
     if (isFs) exitFullscreen(); else enterFullscreen(document.documentElement);
   }
 
-  // ---------- URL sumber (selalu segar) ----------
   function freshUrl() {
-    const sep = ORIGIN.includes("?") ? "&" : "?";
-    const u = ORIGIN + sep + "_=" + Date.now(); // paksa server beri link baru
-    return PROXY ? PROXY + (PROXY.includes("?") ? "&" : "?") + "u=" + encodeURIComponent(u) : u;
+    return ORIGIN + (ORIGIN.includes("?") ? "&" : "?") + "_=" + Date.now();
   }
-
   function tryPlay() {
     video.play().catch(() => { video.muted = true; video.play().catch(() => {}); });
   }
 
-  // ---------- Mode: native (tanpa CORS) ----------
   const NATIVE = !!video.canPlayType("application/vnd.apple.mpegurl");
   const HLSJS = !!(window.Hls && Hls.isSupported());
-  // Jika PROXY diisi, utamakan hls.js lewat proxy. Jika tidak, utamakan native.
-  let mode = (NATIVE && !PROXY) || (NATIVE && !HLSJS) ? "native" : (HLSJS ? "hlsjs" : "none");
+  // Jika proxy diisi dan hls.js ada -> pakai hls.js lewat proxy. Selain itu native.
+  let mode = (CORS_PROXY && HLSJS) ? "hlsjs" : (NATIVE ? "native" : (HLSJS ? "hlsjs" : "none"));
 
   let hls = null;
   let busy = false;
 
-  function loadNative(isRefresh) {
-    if (isRefresh) show("Memperbarui link...");
-    video.src = freshUrl();
-    tryPlay();
-  }
-
   function ensureHls() {
     if (hls) return;
     hls = new Hls({
-      fetchSetup: (ctx, init) => {
-        init.referrerPolicy = "no-referrer";
-        init.referrer = "";
-        return new Request(ctx.url, init);
+      xhrSetup: (xhr, url) => {
+        // Bungkus SEMUA request (playlist + segmen) lewat proxy
+        const target = (CORS_PROXY && !url.startsWith(CORS_PROXY)) ? CORS_PROXY + url : url;
+        xhr.open("GET", target, true);
       }
     });
     hls.attachMedia(video);
@@ -104,7 +91,7 @@
       if (!d.fatal) return;
       if (d.type === Hls.ErrorTypes.NETWORK_ERROR) {
         show("Jaringan bermasalah, mengambil link baru...");
-        setTimeout(() => load(true), 1500);
+        setTimeout(() => load(true), 2000);
       } else if (d.type === Hls.ErrorTypes.MEDIA_ERROR) {
         show("Memulihkan media...");
         hls.recoverMediaError();
@@ -114,40 +101,39 @@
     });
   }
 
-  function loadHls(isRefresh) {
-    ensureHls();
-    if (isRefresh) show("Memperbarui link...");
-    hls.loadSource(freshUrl());
-    hls.startLoad(-1);
-  }
-
   function load(isRefresh) {
     if (busy) return;
     busy = true;
     try {
-      if (mode === "native") loadNative(isRefresh);
-      else if (mode === "hlsjs") loadHls(isRefresh);
+      if (isRefresh) show("Memperbarui link...");
+      if (mode === "native") {
+        video.src = freshUrl();
+        tryPlay();
+      } else if (mode === "hlsjs") {
+        ensureHls();
+        hls.loadSource(freshUrl());
+        hls.startLoad(-1);
+      }
     } finally {
       setTimeout(() => { busy = false; }, 800);
     }
   }
 
-  // Native gagal -> otomatis coba hls.js
+  // Native gagal -> coba hls.js
   video.addEventListener("error", () => {
     if (mode === "native" && HLSJS) {
       mode = "hlsjs";
       video.removeAttribute("src");
       video.load();
-      show(PROXY ? "Beralih ke hls.js..." : "Beralih ke hls.js (butuh CORS)...");
+      show("Beralih ke hls.js...");
       load(false);
     }
   });
-
   video.addEventListener("playing", () => show(""));
 
   // ---------- Mulai ----------
   if (!ORIGIN) {
-    show("URL kosong. Pakai: xm3u8.html?url=LINK_ATAU_REDIRECT");
+    show("URL kosong. Pakai: xm3u8-proxy.html?url=LINK_ATAU_REDIRECT");
   } else if (mode === "none") {
     show("Browser tidak mendukung HLS.");
   } else {
