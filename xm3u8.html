@@ -30,7 +30,7 @@
 <script>
   // ================= PENGATURAN =================
   const REFRESH_MS = 90 * 1000;                            // refresh tiap 90 detik
-  const CORS_PROXY = "https://xcorsany.xenoinfinity.com/"; // proxy gaya cors-anywhere ("" = nonaktif)
+  const CORS_PROXY = "https://xcorsany.xenoinfinity.com/"; // hanya untuk playlist / huya.php
   // ==============================================
 
   const m = location.search.match(/[?&]url=(.*)$/);
@@ -68,10 +68,8 @@
     video.play().catch(() => { video.muted = true; video.play().catch(() => {}); });
   }
 
-  const NATIVE = !!video.canPlayType("application/vnd.apple.mpegurl");
-  const HLSJS = !!(window.Hls && Hls.isSupported());
-  // Jika proxy diisi dan hls.js ada -> pakai hls.js lewat proxy. Selain itu native.
-  let mode = (CORS_PROXY && HLSJS) ? "hlsjs" : (NATIVE ? "native" : (HLSJS ? "hlsjs" : "none"));
+  // Segmen media: diambil langsung, TANPA proxy
+  const SEGMENT_RE = /\.(ts|m4s|mp4|m4a|aac|mp3|cmfv|cmfa|key)(\?|#|$)/i;
 
   let hls = null;
   let busy = false;
@@ -80,14 +78,15 @@
     if (hls) return;
     hls = new Hls({
       xhrSetup: (xhr, url) => {
-        // Bungkus SEMUA request (playlist + segmen) lewat proxy
-        const target = (CORS_PROXY && !url.startsWith(CORS_PROXY)) ? CORS_PROXY + url : url;
-        xhr.open("GET", target, true);
+        const isSegment = SEGMENT_RE.test(url.split("?")[0] + (url.includes("?") ? "?" : ""));
+        const viaProxy = CORS_PROXY && !isSegment && !url.startsWith(CORS_PROXY);
+        xhr.open("GET", viaProxy ? CORS_PROXY + url : url, true);
       }
     });
     hls.attachMedia(video);
     hls.on(Hls.Events.MANIFEST_PARSED, () => { show(""); tryPlay(); });
     hls.on(Hls.Events.ERROR, (_, d) => {
+      console.warn("HLS error:", d.type, d.details, d.fatal, d.response && d.response.url);
       if (!d.fatal) return;
       if (d.type === Hls.ErrorTypes.NETWORK_ERROR) {
         show("Jaringan bermasalah, mengambil link baru...");
@@ -106,36 +105,21 @@
     busy = true;
     try {
       if (isRefresh) show("Memperbarui link...");
-      if (mode === "native") {
-        video.src = freshUrl();
-        tryPlay();
-      } else if (mode === "hlsjs") {
-        ensureHls();
-        hls.loadSource(freshUrl());
-        hls.startLoad(-1);
-      }
+      ensureHls();
+      hls.loadSource(freshUrl());
+      hls.startLoad(-1);
     } finally {
       setTimeout(() => { busy = false; }, 800);
     }
   }
 
-  // Native gagal -> coba hls.js
-  video.addEventListener("error", () => {
-    if (mode === "native" && HLSJS) {
-      mode = "hlsjs";
-      video.removeAttribute("src");
-      video.load();
-      show("Beralih ke hls.js...");
-      load(false);
-    }
-  });
   video.addEventListener("playing", () => show(""));
 
   // ---------- Mulai ----------
   if (!ORIGIN) {
-    show("URL kosong. Pakai: xm3u8-proxy.html?url=LINK_ATAU_REDIRECT");
-  } else if (mode === "none") {
-    show("Browser tidak mendukung HLS.");
+    show("URL kosong. Pakai: xm3u8-playlist.html?url=LINK_ATAU_REDIRECT");
+  } else if (!(window.Hls && Hls.isSupported())) {
+    show("Browser tidak mendukung hls.js.");
   } else {
     load(false);
     setInterval(() => load(true), REFRESH_MS);
