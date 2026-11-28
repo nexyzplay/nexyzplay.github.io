@@ -29,7 +29,11 @@
 
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js"></script>
 <script>
-  const REFRESH_MS = 90 * 1000; // refresh tiap 90 detik (link expired 2 menit)
+  // ================= PENGATURAN =================
+  const REFRESH_MS = 90 * 1000;  // refresh tiap 90 detik (link expired 2 menit)
+  const PROXY = "";              // opsional, contoh: "https://nama.workers.dev/" atau
+                                 // "https://nama.vercel.app/api/proxy". Kosong = tanpa proxy.
+  // ==============================================
 
   const m = location.search.match(/[?&]url=(.*)$/);
   let ORIGIN = m ? m[1] : "";
@@ -43,7 +47,7 @@
     msg.style.display = text ? "block" : "none";
   }
 
-  // --- Fullscreen helper ---
+  // ---------- Fullscreen ----------
   function enterFullscreen(el) {
     const fn = el.requestFullscreen || el.webkitRequestFullscreen
       || el.webkitEnterFullscreen || el.mozRequestFullScreen || el.msRequestFullscreen;
@@ -59,61 +63,34 @@
     if (isFs) exitFullscreen(); else enterFullscreen(document.documentElement);
   }
 
-  // --- Resolve link asli (ikuti redirect / ambil m3u8 dari respons) ---
-  async function resolveUrl() {
-    try {
-      const r = await fetch(ORIGIN, {
-        redirect: "follow",
-        cache: "no-store",
-        referrerPolicy: "no-referrer"
-      });
-      const ct = r.headers.get("content-type") || "";
-
-      // Redirect terjadi -> URL akhir sudah berbeda
-      if (r.url && r.url !== ORIGIN) {
-        try { r.body && r.body.cancel(); } catch (e) {}
-        return r.url;
-      }
-      // Langsung playlist m3u8
-      if (/mpegurl/i.test(ct)) {
-        try { r.body && r.body.cancel(); } catch (e) {}
-        return r.url || ORIGIN;
-      }
-      // Respons teks/JSON yang berisi link m3u8
-      let t = (await r.text()).trim().replace(/\\\//g, "/");
-      if (t.startsWith("#EXTM3U")) return r.url || ORIGIN;
-      const mm = t.match(/https?:\/\/[^\s"'\\<>]+\.m3u8[^\s"'\\<>]*/i);
-      if (mm) return mm[0];
-    } catch (e) {
-      // CORS/jaringan gagal -> fallback ke link asli (browser tetap ikut redirect)
-    }
-    return ORIGIN;
+  // ---------- URL sumber (selalu segar) ----------
+  function freshUrl() {
+    const sep = ORIGIN.includes("?") ? "&" : "?";
+    const u = ORIGIN + sep + "_=" + Date.now(); // paksa server beri link baru
+    return PROXY ? PROXY + (PROXY.includes("?") ? "&" : "?") + "u=" + encodeURIComponent(u) : u;
   }
+
+  function tryPlay() {
+    video.play().catch(() => { video.muted = true; video.play().catch(() => {}); });
+  }
+
+  // ---------- Mode: native (tanpa CORS) ----------
+  const NATIVE = !!video.canPlayType("application/vnd.apple.mpegurl");
+  const HLSJS = !!(window.Hls && Hls.isSupported());
+  // Jika PROXY diisi, utamakan hls.js lewat proxy. Jika tidak, utamakan native.
+  let mode = (NATIVE && !PROXY) || (NATIVE && !HLSJS) ? "native" : (HLSJS ? "hlsjs" : "none");
 
   let hls = null;
-  let refreshing = false;
+  let busy = false;
 
-  async function loadStream(isRefresh) {
-    if (refreshing) return;
-    refreshing = true;
-    try {
-      if (isRefresh) show("Memperbarui link...");
-      const url = await resolveUrl();
-
-      if (hls) {
-        hls.loadSource(url);
-        hls.startLoad(-1);
-      } else if (video.canPlayType("application/vnd.apple.mpegurl") && !(window.Hls && Hls.isSupported())) {
-        // Safari/iOS native
-        video.src = url;
-        video.play().catch(() => {});
-      }
-    } finally {
-      refreshing = false;
-    }
+  function loadNative(isRefresh) {
+    if (isRefresh) show("Memperbarui link...");
+    video.src = freshUrl();
+    tryPlay();
   }
 
-  function startHls() {
+  function ensureHls() {
+    if (hls) return;
     hls = new Hls({
       fetchSetup: (ctx, init) => {
         init.referrerPolicy = "no-referrer";
@@ -122,43 +99,62 @@
       }
     });
     hls.attachMedia(video);
-    hls.on(Hls.Events.MANIFEST_PARSED, () => {
-      show("");
-      video.play().catch(() => { video.muted = true; video.play().catch(() => {}); });
-    });
-    hls.on(Hls.Events.ERROR, async (_, d) => {
+    hls.on(Hls.Events.MANIFEST_PARSED, () => { show(""); tryPlay(); });
+    hls.on(Hls.Events.ERROR, (_, d) => {
       if (!d.fatal) return;
       if (d.type === Hls.ErrorTypes.NETWORK_ERROR) {
         show("Jaringan bermasalah, mengambil link baru...");
-        await loadStream(true); // link kemungkinan expired
+        setTimeout(() => load(true), 1500);
       } else if (d.type === Hls.ErrorTypes.MEDIA_ERROR) {
         show("Memulihkan media...");
         hls.recoverMediaError();
       } else {
         show("Error: " + d.details);
-        hls.destroy(); hls = null;
       }
     });
-    video.addEventListener("playing", () => show(""));
   }
 
+  function loadHls(isRefresh) {
+    ensureHls();
+    if (isRefresh) show("Memperbarui link...");
+    hls.loadSource(freshUrl());
+    hls.startLoad(-1);
+  }
+
+  function load(isRefresh) {
+    if (busy) return;
+    busy = true;
+    try {
+      if (mode === "native") loadNative(isRefresh);
+      else if (mode === "hlsjs") loadHls(isRefresh);
+    } finally {
+      setTimeout(() => { busy = false; }, 800);
+    }
+  }
+
+  // Native gagal -> otomatis coba hls.js
+  video.addEventListener("error", () => {
+    if (mode === "native" && HLSJS) {
+      mode = "hlsjs";
+      video.removeAttribute("src");
+      video.load();
+      show(PROXY ? "Beralih ke hls.js..." : "Beralih ke hls.js (butuh CORS)...");
+      load(false);
+    }
+  });
+
+  video.addEventListener("playing", () => show(""));
+
+  // ---------- Mulai ----------
   if (!ORIGIN) {
-    show("URL kosong. Pakai: m3u8.html?url=LINK_ATAU_REDIRECT");
-  } else if (window.Hls && Hls.isSupported()) {
-    startHls();
-    loadStream(false);
-  } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
-    loadStream(false);
-  } else {
+    show("URL kosong. Pakai: xm3u8.html?url=LINK_ATAU_REDIRECT");
+  } else if (mode === "none") {
     show("Browser tidak mendukung HLS.");
-  }
-
-  // Auto refresh ke link asli
-  if (ORIGIN) {
-    setInterval(() => loadStream(true), REFRESH_MS);
-    // Saat tab kembali aktif, langsung refresh (timer bisa tertunda di background)
+  } else {
+    load(false);
+    setInterval(() => load(true), REFRESH_MS);
     document.addEventListener("visibilitychange", () => {
-      if (!document.hidden) loadStream(true);
+      if (!document.hidden) load(true);
     });
   }
 
